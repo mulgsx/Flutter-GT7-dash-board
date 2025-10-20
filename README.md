@@ -4,8 +4,8 @@ A cross-platform application built with Flutter that receives telemetry data tra
 
 This project extracts accurate data from GT7's telemetry packets and provides drivers with essential information in real-time.
 
-![Current App Screen](app/assets/photo/git1.jpg)
-![Current App Screen](app/assets/photo/git2.jpg)
+![Current App Screen](assets/photo/git1.jpg)
+![Current App Screen](assets/photo/git2.jpg)
 
 
 ## 🚀 Features
