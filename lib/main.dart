@@ -32,13 +32,27 @@ class GT7RpmApp extends StatefulWidget {
 class GT7RpmAppState extends State<GT7RpmApp> {
   final String defaultIp = "192.168.0.0";
   final ValueNotifier<double> rpmNotifier = ValueNotifier<double>(0.0);
+
   final ValueNotifier<int> packetCountNotifier = ValueNotifier<int>(0);
+  // Raw packet count, incremented on every successful reception
+  int _rawPacketCount = 0;
+  // Timer for smoothing the UI update frequency
+  Timer? _displayUpdateTimer;
+
+  final ValueNotifier<String> statusNotifier = ValueNotifier<String>(
+    "IDLE: Press 'Start Receiving' to connect.",
+  );
+
+  // Notifier for the IP address currently displayed in the UI
+  final ValueNotifier<String> currentDisplayedIpNotifier =
+      ValueNotifier<String>("192.168.0.0");
+
   StreamSubscription? udpSubscription;
 
-  // heartbeat Timer
+  // Heartbeat Timer
   Timer? _heartbeatTimer;
 
-  // 定数ポート
+  // Constant ports
   static const int gt7SendPort = 33739; // Heartbeat Send Port
   static const int gt7ReceivePort = 33740; // Receive Port
 
@@ -54,21 +68,18 @@ class GT7RpmAppState extends State<GT7RpmApp> {
     udpSubscription?.cancel();
     receiver?.close();
     _heartbeatTimer?.cancel();
+    _displayUpdateTimer?.cancel(); // Cancel the display timer
     ipController.dispose();
     rpmNotifier.dispose();
     packetCountNotifier.dispose();
+    statusNotifier.dispose();
+    currentDisplayedIpNotifier.dispose(); // Dispose IP Notifier
     super.dispose();
   }
 
   // IPv4 Address Validation
   bool isValidIp(String ip) {
-    final parts = ip.split('.');
-    if (parts.length != 4) return false;
-    for (final part in parts) {
-      final num = int.tryParse(part);
-      if (num == null || num < 0 || num > 255) return false;
-    }
-    return true;
+    return InternetAddress.tryParse(ip) != null;
   }
 
   void showInvalidIpDialog() {
@@ -76,7 +87,9 @@ class GT7RpmAppState extends State<GT7RpmApp> {
       context: context,
       builder: (_) => AlertDialog(
         title: const Text("Invalid IP address format"),
-        content: const Text("Enter it in the format 192.168.0.50."),
+        content: const Text(
+          "Enter it in the format 192.168.0.50 or IPv6 format.",
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
@@ -87,66 +100,154 @@ class GT7RpmAppState extends State<GT7RpmApp> {
     );
   }
 
+  // UDP bind function, returns bool for success/failure
+  Future<bool> bindUdpReceiver() async {
+    try {
+      receiver = await UDP.bind(Endpoint.any(port: Port(gt7ReceivePort)));
+      print("[LOG] UDP receiver bound to port $gt7ReceivePort");
+      return true;
+    } catch (e) {
+      print("[ERROR] Failed to bind UDP receiver: $e");
+      // Update status on error
+      statusNotifier.value =
+          "ERROR: Failed to bind to port $gt7ReceivePort ($e)";
+      receiver = null;
+      return false;
+    }
+  }
+
   void startListening() async {
+    // 1. Update the IP address
     targetIp = ipController.text.trim();
     print("[DEBUG] Target IP is set to: $targetIp");
+
     if (!isValidIp(targetIp)) {
       showInvalidIpDialog();
       return;
     }
 
-    if (isListening) {
+    // Stop existing connection and free resources
+    if (isListening || receiver != null) {
       stopListening();
+      await Future.delayed(const Duration(milliseconds: 100));
     }
-    sendHeartbeat();
 
-    await bindUdpReceiver();
+    // Set the displayed IP to the user's input value
+    currentDisplayedIpNotifier.value = targetIp;
+
+    // Update status
+    statusNotifier.value = "Binding to port $gt7ReceivePort...";
+
+    // Bind UDP receiver
+    if (!(await bindUdpReceiver())) {
+      return;
+    }
+
     setState(() => isListening = true);
+    statusNotifier.value = "Listening on $targetIp. Awaiting packets...";
 
-    udpSubscription = receiver!.asStream().listen((datagram) {
-      if (datagram == null) {
-        print("DEBUG: Datagram is null.");
-        return;
+    // Reset raw counter and initialize UI
+    _rawPacketCount = 0;
+    packetCountNotifier.value = 0;
+
+    // Setup timer to smooth the display (updates 5 times per second)
+    _displayUpdateTimer?.cancel();
+    _displayUpdateTimer = Timer.periodic(const Duration(milliseconds: 200), (
+      timer,
+    ) {
+      // Update only if the raw value and the displayed value differ
+      if (packetCountNotifier.value != _rawPacketCount) {
+        packetCountNotifier.value = _rawPacketCount;
       }
-
-      if (datagram.address.address != targetIp) {
-        print(
-          "DEBUG: Received packet from wrong IP: ${datagram.address.address}",
-        );
-        return;
-      }
-
-      final rawData = datagram.data;
-      final decrypted = decodeSalsa20(rawData);
-
-      // decodeSalsa20
-      if (decrypted.isEmpty) {
-        print(
-          "DEBUG: Decrypted data is empty (Magic number failed or decryption error).",
-        );
-        return;
-      }
-
-      packetCountNotifier.value++;
-
-      // RPM data
-      final newRpm = getFloat(decrypted, RPM_OFFSET);
-      rpmNotifier.value = newRpm;
-      print("[DEBUG] Extracted RPM (Offset 0x3C): $newRpm");
-
-      if (packetCountNotifier.value % 100 == 0) sendHeartbeat();
     });
+
+    // Setup Heartbeat timer (improved responsiveness by setting frequency to 100ms)
+    _heartbeatTimer = Timer.periodic(const Duration(milliseconds: 100), (
+      timer,
+    ) {
+      sendHeartbeat();
+    });
+
+    // Start stream subscription
+    udpSubscription = receiver!.asStream().listen(
+      (datagram) {
+        if (datagram == null) {
+          print("DEBUG: Datagram is null.");
+          return;
+        }
+
+        final receivedIp = datagram.address.host;
+        // Check sender IP and ignore packets that do not match the targetIp
+        if (receivedIp != targetIp) {
+          print(
+            "DEBUG: Received packet from wrong IP: $receivedIp (Expected: $targetIp)",
+          );
+          return;
+        }
+
+        final rawData = datagram.data;
+        final decrypted = decodeSalsa20(rawData);
+
+        if (decrypted.isEmpty) {
+          print(
+            "DEBUG: Decrypted data is empty (Magic number failed or decryption error).",
+          );
+          return;
+        }
+
+        // Increment raw packet count first
+        _rawPacketCount++;
+
+        // If packet reception is successful, display the actual sender IP
+        if (currentDisplayedIpNotifier.value != receivedIp) {
+          currentDisplayedIpNotifier.value = receivedIp;
+          statusNotifier.value = "Receiving Data from $receivedIp";
+        } else if (statusNotifier.value.contains("Awaiting") ||
+            statusNotifier.value.startsWith("IDLE")) {
+          statusNotifier.value = "Receiving Data from $receivedIp";
+        }
+
+        // RPM data
+        final newRpm = getFloat(decrypted, RPM_OFFSET);
+        rpmNotifier.value = newRpm;
+        print("[DEBUG] Extracted RPM (Offset 0x3C): $newRpm");
+      },
+      // Stream error handler
+      onError: (error) {
+        print("[STREAM ERROR] UDP stream failed: $error");
+        statusNotifier.value =
+            "ERROR: Stream failed ($error). Please try restarting.";
+        stopListening();
+      },
+      // Stream completion handler
+      onDone: () {
+        print("[STREAM DONE] UDP stream closed.");
+        statusNotifier.value = "Connection Closed.";
+        stopListening();
+      },
+    );
   }
 
   void stopListening() {
     _heartbeatTimer?.cancel();
     _heartbeatTimer = null;
 
+    _displayUpdateTimer?.cancel(); // Cancel the display timer
+    _displayUpdateTimer = null;
+
     udpSubscription?.cancel();
+    udpSubscription = null;
+
     receiver?.close();
     receiver = null;
-    udpSubscription = null;
+
     setState(() => isListening = false);
+
+    // Set to idle unless already in an error state
+    if (!statusNotifier.value.startsWith("ERROR")) {
+      statusNotifier.value = "IDLE: Listening stopped.";
+    }
+
     print("[LOG] Listening stopped.");
   }
 
@@ -163,15 +264,6 @@ class GT7RpmAppState extends State<GT7RpmApp> {
       }
     } catch (e) {
       print("[ERROR] Heartbeat failed: $e");
-    }
-  }
-
-  Future<void> bindUdpReceiver() async {
-    try {
-      receiver = await UDP.bind(Endpoint.any(port: Port(gt7ReceivePort)));
-      print("[LOG] UDP receiver bound to port $gt7ReceivePort");
-    } catch (e) {
-      print("[ERROR] Failed to bind UDP receiver: $e");
     }
   }
 
@@ -243,31 +335,27 @@ class GT7RpmAppState extends State<GT7RpmApp> {
                 "Connection Settings",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-
               const SizedBox(height: 8),
-
               IpInputField(
                 controller: ipController,
                 onSubmitted: startListening,
               ),
-
               const SizedBox(height: 12),
-
               ReceiveToggleButton(
                 isListening: isListening,
                 onStart: startListening,
                 onStop: stopListening,
               ),
-
               const Divider(height: 32),
-
+              ConnectionStatusDisplay(
+                statusNotifier: statusNotifier,
+              ), // Connection status display
+              const Divider(height: 16),
               const Text(
                 "Live Data",
                 style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
               ),
-
               const SizedBox(height: 12),
-
               Card(
                 elevation: 2,
                 child: Padding(
@@ -275,11 +363,10 @@ class GT7RpmAppState extends State<GT7RpmApp> {
                   child: RpmDisplay(rpmNotifier: rpmNotifier),
                 ),
               ),
-
               const SizedBox(height: 10),
-
+              // Pass the Notifier
               PacketInfoDisplay(
-                ip: targetIp,
+                ipNotifier: currentDisplayedIpNotifier,
                 countNotifier: packetCountNotifier,
               ),
             ],
@@ -337,22 +424,57 @@ class RpmDisplay extends StatelessWidget {
 
 // Packet info
 class PacketInfoDisplay extends StatelessWidget {
-  final String ip;
+  // Receive Notifiers
+  final ValueNotifier<String> ipNotifier;
   final ValueNotifier<int> countNotifier;
 
   const PacketInfoDisplay({
     super.key,
-    required this.ip,
+    required this.ipNotifier,
     required this.countNotifier,
   });
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<int>(
-      valueListenable: countNotifier,
-      builder: (_, count, __) => Text(
-        "Packets from $ip: $count",
-        style: const TextStyle(fontSize: 18, color: Colors.blueGrey),
+    // Nest ValueListenableBuilder to react to IP address changes
+    return ValueListenableBuilder<String>(
+      valueListenable: ipNotifier,
+      builder: (_, ip, __) => ValueListenableBuilder<int>(
+        valueListenable: countNotifier,
+        builder: (_, count, __) => Text(
+          "Packets from $ip: $count",
+          style: const TextStyle(fontSize: 16, color: Colors.blueGrey),
+        ),
+      ),
+    );
+  }
+}
+
+// Connection Status Display Widget
+class ConnectionStatusDisplay extends StatelessWidget {
+  final ValueNotifier<String> statusNotifier;
+
+  const ConnectionStatusDisplay({super.key, required this.statusNotifier});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String>(
+      valueListenable: statusNotifier,
+      builder: (_, status, __) => Text(
+        "Status: $status",
+        style: TextStyle(
+          fontSize: 16,
+          // Change color based on error or connection status
+          color:
+              status.startsWith("ERROR") ||
+                  status.contains("Closed") ||
+                  status.startsWith("IDLE")
+              ? Colors.red.shade700
+              : status.startsWith("Receiving")
+              ? Colors.green.shade700
+              : Colors.orange.shade700,
+          fontWeight: FontWeight.w500,
+        ),
       ),
     );
   }
@@ -373,8 +495,18 @@ class ReceiveToggleButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ElevatedButton(
+      style: ElevatedButton.styleFrom(
+        backgroundColor: isListening ? Colors.red : Colors.green,
+        foregroundColor: Colors.white,
+        padding: const EdgeInsets.symmetric(vertical: 16),
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      ),
       onPressed: isListening ? onStop : onStart,
-      child: Text(isListening ? "Stop Receiving" : "Start Receiving"),
+      child: Text(
+        isListening ? "Stop Receiving" : "Start Receiving",
+        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+      ),
     );
   }
 }
