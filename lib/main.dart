@@ -1,22 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:udp/udp.dart';
-import 'dart:typed_data';
 import 'dart:async';
 import 'dart:io';
 
-import 'package:pointycastle/api.dart' hide Padding;
-import 'package:pointycastle/stream/salsa20.dart';
+// import 'package:pointycastle/api.dart' hide Padding;
+// import 'package:pointycastle/stream/salsa20.dart';
 
-// GT7 Encryption Constants
-final Uint8List GT7_KEY_BYTES = Uint8List.fromList(
-  "Simulator Interface Packet GT7 ver 0.0".codeUnits,
-).sublist(0, 32);
+import 'package:shared_preferences/shared_preferences.dart';
+import 'gt7_decoder.dart';
 
-// GT7S MAGIC NUMBER
-const int GT7_MAGIC_NUMBER = 0x47375330;
-
-const int RPM_OFFSET = 0x3C;
+// SharedPreferences Key for IP address
+const String prefIpKey = 'gt7_ps5_ip';
 
 void main() => runApp(
   const MaterialApp(home: GT7RpmApp(), debugShowCheckedModeBanner: false),
@@ -62,6 +57,40 @@ class GT7RpmAppState extends State<GT7RpmApp> {
   late String targetIp = defaultIp;
   bool isListening = false;
   UDP? receiver;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSavedIp(); // Load the saved IP address on startup
+  }
+
+  // Method to load the saved IP address from SharedPreferences
+  void _loadSavedIp() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // Retrieve the saved IP string using the key. Use defaultIp if none is found.
+      final savedIp = prefs.getString(prefIpKey) ?? defaultIp;
+
+      ipController.text = savedIp;
+      targetIp = savedIp;
+      currentDisplayedIpNotifier.value = savedIp;
+
+      print("[LOG] Loaded IP from prefs: $savedIp");
+    } catch (e) {
+      print("[ERROR] Failed to load IP from SharedPreferences: $e");
+    }
+  }
+
+  // Method to save the valid IP address to SharedPreferences
+  void _saveIp(String ip) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(prefIpKey, ip);
+      print("[LOG] Saved IP to prefs: $ip");
+    } catch (e) {
+      print("[ERROR] Failed to save IP to SharedPreferences: $e");
+    }
+  }
 
   @override
   void dispose() {
@@ -126,6 +155,8 @@ class GT7RpmAppState extends State<GT7RpmApp> {
       return;
     }
 
+    _saveIp(targetIp); // Save the valid IP address
+
     // Stop existing connection and free resources
     if (isListening || receiver != null) {
       stopListening();
@@ -186,7 +217,7 @@ class GT7RpmAppState extends State<GT7RpmApp> {
         }
 
         final rawData = datagram.data;
-        final decrypted = decodeSalsa20(rawData);
+        final decrypted = decodeSalsa20(rawData); // Use imported function
 
         if (decrypted.isEmpty) {
           print(
@@ -208,7 +239,7 @@ class GT7RpmAppState extends State<GT7RpmApp> {
         }
 
         // RPM data
-        final newRpm = getFloat(decrypted, RPM_OFFSET);
+        final newRpm = getFloat(decrypted, rpmOffset); // Use imported function
         rpmNotifier.value = newRpm;
         print("[DEBUG] Extracted RPM (Offset 0x3C): $newRpm");
       },
@@ -265,60 +296,6 @@ class GT7RpmAppState extends State<GT7RpmApp> {
     } catch (e) {
       print("[ERROR] Heartbeat failed: $e");
     }
-  }
-
-  Uint8List decodeSalsa20(Uint8List encryptedData) {
-    if (encryptedData.length < 68) {
-      print("[ERROR] Packet length too short: ${encryptedData.length}");
-      return Uint8List(0);
-    }
-
-    try {
-      final ivBytesSource = encryptedData.sublist(64, 68);
-      final data = ByteData.sublistView(ivBytesSource);
-
-      final iv1 = data.getUint32(0, Endian.little);
-
-      const int deadbeaf = 0xDEADBEAF;
-      final iv2 = iv1 ^ deadbeaf;
-
-      final iv = Uint8List(8);
-      final ivBuffer = ByteData.view(iv.buffer);
-      ivBuffer.setUint32(0, iv2, Endian.little);
-      ivBuffer.setUint32(4, iv1, Endian.little);
-
-      final cipher = Salsa20Engine();
-      final keyParam = KeyParameter(GT7_KEY_BYTES);
-      final params = ParametersWithIV(keyParam, iv);
-
-      final decrypted = Uint8List(encryptedData.length);
-      cipher.init(false, params);
-      cipher.processBytes(encryptedData, 0, encryptedData.length, decrypted, 0);
-
-      final magic = ByteData.view(decrypted.buffer).getUint32(0, Endian.little);
-
-      final isMagicValid = (magic == GT7_MAGIC_NUMBER);
-
-      if (!isMagicValid) {
-        print(
-          "[ERROR] Magic number check failed. Found: ${magic.toRadixString(16).padLeft(8, '0')}, Expected: ${GT7_MAGIC_NUMBER.toRadixString(16)}",
-        );
-      }
-
-      return isMagicValid ? decrypted : Uint8List(0);
-    } catch (e) {
-      print("[ERROR] Decryption error: $e");
-      return Uint8List(0);
-    }
-  }
-
-  /// float (Little-Endian)
-  double getFloat(Uint8List decoded, int offset) {
-    return (decoded.length >= offset + 4)
-        ? ByteData.sublistView(
-            decoded,
-          ).getFloat32(offset, Endian.little).toDouble()
-        : 0.0;
   }
 
   @override
