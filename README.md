@@ -4,8 +4,17 @@ A cross-platform application built with Flutter that receives telemetry data tra
 
 This project extracts accurate data from GT7's telemetry packets and provides drivers with essential information in real-time.
 
-  <img src="assets/photo/git1.jpg" alt="現在のアプリ画面" width="300">
-  <img src="assets/photo/git2.jpg" alt="ダッシュボード拡張例" width="300">
+<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+  <img src="assets/photo/git1.jpg" alt="現在のアプリ画面" width="300" style="flex: 1 1 auto; max-width: 300px;">
+  <img src="assets/photo/git2.jpg" alt="ダッシュボード拡張例" width="300" style="flex: 1 1 auto; max-width: 300px;">
+</div>
+
+
+## Extension Examples
+<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+  <img src="assets/photo/git3.jpg" alt="ダッシュボード拡張例" width="150" style="flex: 1 1 auto; max-width: 100px;">
+  <img src="assets/photo/git4.jpg" alt="ダッシュボード拡張例" width="400" style="flex: 1 1 auto; max-width: 500px;">
+</div>
 
 
 
