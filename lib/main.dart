@@ -3,19 +3,37 @@ import 'package:flutter/services.dart';
 import 'package:udp/udp.dart';
 import 'dart:async';
 import 'dart:io';
-
-// import 'package:pointycastle/api.dart' hide Padding;
-// import 'package:pointycastle/stream/salsa20.dart';
-
 import 'package:shared_preferences/shared_preferences.dart';
 import 'gt7_decoder.dart';
+import 'gt7_drawer.dart';
 
 // SharedPreferences Key for IP address
 const String prefIpKey = 'gt7_ps5_ip';
 
-void main() => runApp(
-  const MaterialApp(home: GT7RpmApp(), debugShowCheckedModeBanner: false),
-);
+void main() {
+  // Ensure Flutter bindings are initialized
+  WidgetsFlutterBinding.ensureInitialized();
+
+  SystemChrome.setSystemUIOverlayStyle(
+    const SystemUiOverlayStyle(
+      statusBarColor: Colors.transparent,
+      systemNavigationBarColor: Colors.transparent,
+    ),
+  );
+
+  // Hide status bar and navigation bar (Immersive Mode)
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+  // Fix orientation to landscape (left and right)
+  SystemChrome.setPreferredOrientations([
+    DeviceOrientation.landscapeLeft,
+    DeviceOrientation.landscapeRight,
+  ]).then((_) {
+    runApp(
+      const MaterialApp(home: GT7RpmApp(), debugShowCheckedModeBanner: false),
+    );
+  });
+}
 
 class GT7RpmApp extends StatefulWidget {
   const GT7RpmApp({super.key});
@@ -241,7 +259,6 @@ class GT7RpmAppState extends State<GT7RpmApp> {
         // RPM data
         final newRpm = getFloat(decrypted, rpmOffset); // Use imported function
         rpmNotifier.value = newRpm;
-        print("[DEBUG] Extracted RPM (Offset 0x3C): $newRpm");
       },
       // Stream error handler
       onError: (error) {
@@ -301,50 +318,51 @@ class GT7RpmAppState extends State<GT7RpmApp> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text("GT7 RPM Tracker")),
+      drawer: ValueListenableBuilder<int>(
+        valueListenable: packetCountNotifier,
+        builder: (context, count, _) {
+          return ValueListenableBuilder<String>(
+            valueListenable: statusNotifier,
+            builder: (context, status, _) {
+              return GT7Drawer(
+                ipController: ipController,
+                isListening: isListening,
+                onStart: startListening,
+                onStop: stopListening,
+                packetCount: count,
+                status: status,
+              );
+            },
+          );
+        },
+      ),
+      appBar: AppBar(
+        // 1. Title of the app
+        title: const Text("GT7 RPM Tracker"),
+
+        // 2. Menu button on the left (Leading)
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu),
+            onPressed: () {
+              // 3. Open the drawer
+              Scaffold.of(context).openDrawer();
+            },
+          ),
+        ),
+      ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text(
-                "Connection Settings",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 8),
-              IpInputField(
-                controller: ipController,
-                onSubmitted: startListening,
-              ),
-              const SizedBox(height: 12),
-              ReceiveToggleButton(
-                isListening: isListening,
-                onStart: startListening,
-                onStop: stopListening,
-              ),
-              const Divider(height: 32),
-              ConnectionStatusDisplay(
-                statusNotifier: statusNotifier,
-              ), // Connection status display
-              const Divider(height: 16),
-              const Text(
-                "Live Data",
-                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              ),
-              const SizedBox(height: 12),
               Card(
                 elevation: 2,
                 child: Padding(
                   padding: const EdgeInsets.all(16.0),
                   child: RpmDisplay(rpmNotifier: rpmNotifier),
                 ),
-              ),
-              const SizedBox(height: 10),
-              // Pass the Notifier
-              PacketInfoDisplay(
-                ipNotifier: currentDisplayedIpNotifier,
-                countNotifier: packetCountNotifier,
               ),
             ],
           ),
