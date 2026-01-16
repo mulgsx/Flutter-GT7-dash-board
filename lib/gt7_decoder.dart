@@ -75,3 +75,26 @@ double getFloat(Uint8List decoded, int offset) {
         ).getFloat32(offset, Endian.little).toDouble()
       : 0.0;
 }
+
+// int getUint16(Uint8List decoded, int offset) {
+//   // Check if the packet is long enough for a 2-byte integer.
+//   if (decoded.length < offset + 2) {
+//     return 0;
+//   }
+//   return ByteData.sublistView(decoded).getUint16(offset, Endian.little);
+// }
+
+// bool getLSB(Uint8List decoded, int offset) {
+//   if (decoded.length <= offset) {
+//     return false;
+//   }
+//   final int statusByte = decoded[offset];
+//   return (statusByte & 0x01) == 1;
+// }
+
+// int getUint8(Uint8List decoded, int offset) {
+//   if (decoded.length <= offset) {
+//     return 0;
+//   }
+//   return decoded[offset];
+// }
