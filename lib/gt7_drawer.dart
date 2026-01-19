@@ -25,65 +25,67 @@ class GT7Drawer extends StatelessWidget {
       onTap: () => FocusScope.of(context).unfocus(),
       child: Drawer(
         child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SafeArea(
-                  bottom: false,
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 16.0, bottom: 8.0),
-                    child: Text(
-                      "Menu",
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SafeArea(
+                    bottom: false,
+                    child: Padding(
+                      padding: EdgeInsets.only(top: 16.0, bottom: 8.0),
+                      child: Text(
+                        "Menu",
+                        style: TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const Divider(),
-                TextField(
-                  controller: ipController,
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                    signed: false,
+                  const Divider(),
+                  TextField(
+                    controller: ipController,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: false,
+                    ),
+                    inputFormatters: <TextInputFormatter>[
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9\.]')),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: "PlayStation IP",
+                      hintText: "192.168.0.12",
+                      border: OutlineInputBorder(),
+                    ),
                   ),
-                  inputFormatters: <TextInputFormatter>[
-                    FilteringTextInputFormatter.allow(RegExp(r'[0-9\.]')),
-                  ],
-                  decoration: const InputDecoration(
-                    labelText: "PlayStation IP",
-                    hintText: "192.168.0.12",
-                    border: OutlineInputBorder(),
+                  const SizedBox(height: 12),
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isListening ? Colors.red : Colors.green,
+                      foregroundColor: Colors.white,
+                    ),
+                    onPressed: isListening ? onStop : onStart,
+                    child: Text(isListening ? "stop" : "start"),
                   ),
-                ),
-                const SizedBox(height: 12),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: isListening ? Colors.red : Colors.green,
-                    foregroundColor: Colors.white,
+                  const SizedBox(height: 8),
+                  Text(
+                    "Received Packets: $packetCount",
+                    style: const TextStyle(fontSize: 16),
                   ),
-                  onPressed: isListening ? onStop : onStart,
-                  child: Text(isListening ? "stop" : "start"),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  "Received Packets: $packetCount",
-                  style: const TextStyle(fontSize: 16),
-                ),
-                const Divider(),
-                Text(
-                  "Status: $status",
-                  style: TextStyle(
-                    fontSize: 14,
-                    color: status.startsWith("ERROR")
-                        ? Colors.red
-                        : Colors.green,
+                  const Divider(),
+                  Text(
+                    "Status: $status",
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: status.startsWith("ERROR")
+                          ? Colors.red
+                          : Colors.green,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
