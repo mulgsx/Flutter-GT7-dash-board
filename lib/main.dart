@@ -341,13 +341,15 @@ class GT7RpmAppState extends State<GT7RpmApp> {
         title: const Text("GT7 RPM Tracker"),
 
         // 2. Menu button on the left (Leading)
-        leading: Builder(
-          builder: (context) => IconButton(
-            icon: const Icon(Icons.menu),
-            onPressed: () {
-              // 3. Open the drawer
-              Scaffold.of(context).openDrawer();
-            },
+        leading: SafeArea(
+          child: Builder(
+            builder: (context) => IconButton(
+              icon: const Icon(Icons.menu),
+              onPressed: () {
+                // 3. Open the drawer
+                Scaffold.of(context).openDrawer();
+              },
+            ),
           ),
         ),
       ),
