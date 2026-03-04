@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'gt7_decoder.dart';
 import 'gt7_drawer.dart';
+import 'dashboard_screen.dart';
 
 // SharedPreferences Key for IP address
 const String prefIpKey = 'gt7_ps5_ip';
@@ -44,7 +45,13 @@ class GT7RpmApp extends StatefulWidget {
 
 class GT7RpmAppState extends State<GT7RpmApp> {
   final String defaultIp = "192.168.0.0";
-  final ValueNotifier<double> rpmNotifier = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> rpmNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> speedNotifier   = ValueNotifier<double>(0.0);
+  final ValueNotifier<int>    gearNotifier    = ValueNotifier<int>(0);
+  final ValueNotifier<double> throttleNotifier = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> brakeNotifier   = ValueNotifier<double>(0.0);
+  final ValueNotifier<int>    rpmWarningNotifier = ValueNotifier<int>(0);
+  final ValueNotifier<int>    rpmLimiterNotifier = ValueNotifier<int>(0);
 
   final ValueNotifier<int> packetCountNotifier = ValueNotifier<int>(0);
   // Raw packet count, incremented on every successful reception
@@ -118,6 +125,12 @@ class GT7RpmAppState extends State<GT7RpmApp> {
     _displayUpdateTimer?.cancel(); // Cancel the display timer
     ipController.dispose();
     rpmNotifier.dispose();
+    speedNotifier.dispose();
+    gearNotifier.dispose();
+    throttleNotifier.dispose();
+    brakeNotifier.dispose();
+    rpmWarningNotifier.dispose();
+    rpmLimiterNotifier.dispose();
     packetCountNotifier.dispose();
     statusNotifier.dispose();
     currentDisplayedIpNotifier.dispose(); // Dispose IP Notifier
@@ -256,9 +269,24 @@ class GT7RpmAppState extends State<GT7RpmApp> {
           statusNotifier.value = "Receiving Data from $receivedIp";
         }
 
-        // RPM data
-        final newRpm = getFloat(decrypted, rpmOffset); // Use imported function
-        rpmNotifier.value = newRpm;
+        // RPM
+        rpmNotifier.value = getFloat(decrypted, rpmOffset);
+
+        // 速度 (m/s → km/h)
+        speedNotifier.value = getFloat(decrypted, speedOffset) * 3.6;
+
+        // ギア (下位4ビット)
+        gearNotifier.value = getUint8(decrypted, gearsOffset) & 0x0F;
+
+        // スロットル / ブレーキ (0–255 → 0.0–1.0)
+        throttleNotifier.value = getUint8(decrypted, throttleOffset) / 255.0;
+        brakeNotifier.value    = getUint8(decrypted, brakeOffset)    / 255.0;
+
+        // レブ警告 / リミッター（値が来た時だけ更新）
+        final newWarn = getUint16(decrypted, rpmWarningOffset);
+        if (newWarn > 0) rpmWarningNotifier.value = newWarn;
+        final newLim = getUint16(decrypted, rpmLimiterOffset);
+        if (newLim > 0) rpmLimiterNotifier.value = newLim;
       },
       // Stream error handler
       onError: (error) {
@@ -337,40 +365,31 @@ class GT7RpmAppState extends State<GT7RpmApp> {
         },
       ),
       appBar: AppBar(
-        // 1. Title of the app
-        title: const Text("GT7 RPM Tracker"),
-
-        // 2. Menu button on the left (Leading)
-        leading: SafeArea(
-          child: Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () {
-                // 3. Open the drawer
-                Scaffold.of(context).openDrawer();
-              },
-            ),
+        backgroundColor: const Color(0xFF0A0A14),
+        elevation: 0,
+        title: const Text(
+          'GT7 DASHBOARD',
+          style: TextStyle(
+            color: Colors.white54,
+            fontSize: 13,
+            letterSpacing: 3,
+          ),
+        ),
+        leading: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.menu, color: Colors.white54),
+            onPressed: () => Scaffold.of(context).openDrawer(),
           ),
         ),
       ),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: SingleChildScrollView(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Card(
-                  elevation: 2,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: RpmDisplay(rpmNotifier: rpmNotifier),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      body: RacingDashboard(
+        rpmNotifier:        rpmNotifier,
+        speedNotifier:      speedNotifier,
+        gearNotifier:       gearNotifier,
+        throttleNotifier:   throttleNotifier,
+        brakeNotifier:      brakeNotifier,
+        rpmWarningNotifier: rpmWarningNotifier,
+        rpmLimiterNotifier: rpmLimiterNotifier,
       ),
     );
   }

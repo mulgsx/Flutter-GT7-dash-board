@@ -13,6 +13,14 @@ const int gt7MagicNumber = 0x47375330;
 // Offset for RPM value in the decoded packet (0x3C = 60)
 const int rpmOffset = 0x3C;
 
+// Additional offsets
+const int speedOffset      = 0x4C; // float, m/s  → × 3.6 = km/h
+const int rpmWarningOffset = 0x88; // uint16, rev warning RPM
+const int rpmLimiterOffset = 0x8A; // uint16, rev limiter RPM
+const int gearsOffset      = 0x90; // uint8, lower4=current gear, upper4=suggested
+const int throttleOffset   = 0x91; // uint8, 0–255
+const int brakeOffset      = 0x92; // uint8, 0–255
+
 // Deadbeaf constant used in IV calculation
 const int _deadbeaf = 0xDEADBEAF;
 
@@ -65,6 +73,18 @@ Uint8List decodeSalsa20(Uint8List encryptedData) {
     print("[ERROR] Decryption error: $e");
     return Uint8List(0);
   }
+}
+
+/// Read a uint8 from the decoded packet at a specific offset.
+int getUint8(Uint8List decoded, int offset) {
+  if (decoded.length <= offset) return 0;
+  return decoded[offset];
+}
+
+/// Read a uint16 (Little-Endian) from the decoded packet at a specific offset.
+int getUint16(Uint8List decoded, int offset) {
+  if (decoded.length < offset + 2) return 0;
+  return ByteData.sublistView(decoded).getUint16(offset, Endian.little);
 }
 
 /// Read a float (Little-Endian) from the decoded packet data at a specific offset.
