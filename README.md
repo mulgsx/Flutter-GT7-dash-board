@@ -4,6 +4,8 @@ A cross-platform application built with Flutter that receives telemetry data tra
 
 This project extracts accurate data from GT7's telemetry packets and provides drivers with essential information in real-time.
 
+By adding a packet specification document, you can now build custom dashboards using vibe coding.
+
 <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
   <img src="assets/photo/git1.jpg" alt="現在のアプリ画面" width="335" style="flex: 1 1 auto; max-width: 300px;">
   <img src="assets/photo/git2.jpg" alt="ダッシュボード拡張例" width="300" style="flex: 1 1 auto; max-width: 300px;">
@@ -51,8 +53,10 @@ Key telemetry data offsets used in the decoding process. (Offsets may change wit
 | Throttle Input | 145 | Unsigned Byte |
 | Brake Input | 146 | Unsigned Byte |
 
-## 💡 Extension Ideas
+## Built with Vibe Coding
 
-* **Rich Custom Gauges**: Implement speedometer and tachometer UI with animations and visual effects.
-* **Data Logging**: Save received data to a backend like Firebase or local database to enable analysis of driving history.
-* **UX Improvements**: Add automatic IP address detection functionality.
+<div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+  <img src="assets/photo/git5.jpg" alt="Vibe coding example 1" width="300" style="flex: 1 1 auto; max-width: 300px;">
+  <img src="assets/photo/git6.jpg" alt="Vibe coding example 2" width="300" style="flex: 1 1 auto; max-width: 300px;">
+  <img src="assets/photo/git7.jpg" alt="Vibe coding example 3" width="300" style="flex: 1 1 auto; max-width: 300px;">
+</div>
