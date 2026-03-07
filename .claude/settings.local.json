@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(flutter clean)",
+      "Bash(flutter pub get)",
+      "Bash(dart run flutter_launcher_icons)"
+    ]
+  }
+}

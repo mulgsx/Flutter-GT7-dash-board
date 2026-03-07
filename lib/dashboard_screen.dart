@@ -116,64 +116,63 @@ class _TachometerPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<double>(
-      valueListenable: rpmNotifier,
-      builder: (_, rpm, __) => ValueListenableBuilder<double>(
-        valueListenable: speedNotifier,
-        builder: (_, speed, __) => ValueListenableBuilder<int>(
-          valueListenable: rpmWarningNotifier,
-          builder: (_, rpmWarning, __) => ValueListenableBuilder<int>(
-            valueListenable: rpmLimiterNotifier,
-            builder: (_, rpmLimiter, __) {
-              final maxRpm =
-                  rpmLimiter > 0 ? rpmLimiter.toDouble() : 9000.0;
-              final warningRpm =
-                  rpmWarning > 0 ? rpmWarning.toDouble() : maxRpm * 0.85;
-              return CustomPaint(
-                painter: TachometerPainter(
-                  rpm: rpm,
-                  maxRpm: maxRpm,
-                  warningRpm: warningRpm,
-                ),
-                child: Center(
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        speed.toStringAsFixed(0),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 64,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: -1,
-                          height: 1.0,
-                        ),
-                      ),
-                      const Text(
-                        'km/h',
-                        style: TextStyle(
-                          color: Colors.white54,
-                          fontSize: 16,
-                          letterSpacing: 4,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        '${rpm.toStringAsFixed(0)} RPM',
-                        style: const TextStyle(
-                          color: Colors.white30,
-                          fontSize: 13,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ],
+    final listenable = Listenable.merge([
+      rpmNotifier,
+      speedNotifier,
+      rpmWarningNotifier,
+      rpmLimiterNotifier,
+    ]);
+    return ListenableBuilder(
+      listenable: listenable,
+      builder: (_, __) {
+        final rpm       = rpmNotifier.value;
+        final speed     = speedNotifier.value;
+        final rpmLimiter = rpmLimiterNotifier.value;
+        final rpmWarning = rpmWarningNotifier.value;
+        final maxRpm    = rpmLimiter > 0 ? rpmLimiter.toDouble() : 9000.0;
+        final warningRpm = rpmWarning > 0 ? rpmWarning.toDouble() : maxRpm * 0.85;
+        return CustomPaint(
+          painter: TachometerPainter(
+            rpm: rpm,
+            maxRpm: maxRpm,
+            warningRpm: warningRpm,
+          ),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  speed.toStringAsFixed(0),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 64,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -1,
+                    height: 1.0,
                   ),
                 ),
-              );
-            },
+                const Text(
+                  'km/h',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 16,
+                    letterSpacing: 4,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Text(
+                  '${rpm.toStringAsFixed(0)} RPM',
+                  style: const TextStyle(
+                    color: Colors.white30,
+                    fontSize: 13,
+                    letterSpacing: 1,
+                  ),
+                ),
+              ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 }

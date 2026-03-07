@@ -1,4 +1,4 @@
-package com.example.gt7_dashborad_flutter
+package com.vibecoding.gt7dashboard
 
 import io.flutter.embedding.android.FlutterActivity
 
