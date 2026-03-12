@@ -67,34 +67,30 @@ Uint8List decodeSalsa20(Uint8List encryptedData) {
   }
 }
 
-/// Read a float (Little-Endian) from the decoded packet data at a specific offset.
-double getFloat(Uint8List decoded, int offset) {
-  return (decoded.length >= offset + 4)
-      ? ByteData.sublistView(
-          decoded,
-        ).getFloat32(offset, Endian.little).toDouble()
+/// Read a float (Little-Endian) from ByteData at a specific offset.
+double getFloat(ByteData data, int offset) {
+  return (data.lengthInBytes >= offset + 4)
+      ? data.getFloat32(offset, Endian.little).toDouble()
       : 0.0;
 }
 
-// int getUint16(Uint8List decoded, int offset) {
-//   // Check if the packet is long enough for a 2-byte integer.
-//   if (decoded.length < offset + 2) {
+// int getUint16(ByteData data, int offset) {
+//   if (data.lengthInBytes < offset + 2) {
 //     return 0;
 //   }
-//   return ByteData.sublistView(decoded).getUint16(offset, Endian.little);
+//   return data.getUint16(offset, Endian.little);
 // }
 
-// bool getLSB(Uint8List decoded, int offset) {
-//   if (decoded.length <= offset) {
+// bool getLSB(ByteData data, int offset) {
+//   if (data.lengthInBytes <= offset) {
 //     return false;
 //   }
-//   final int statusByte = decoded[offset];
-//   return (statusByte & 0x01) == 1;
+//   return (data.getUint8(offset) & 0x01) == 1;
 // }
 
-// int getUint8(Uint8List decoded, int offset) {
-//   if (decoded.length <= offset) {
+// int getUint8(ByteData data, int offset) {
+//   if (data.lengthInBytes <= offset) {
 //     return 0;
 //   }
-//   return decoded[offset];
+//   return data.getUint8(offset);
 // }

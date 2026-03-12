@@ -257,7 +257,8 @@ class GT7RpmAppState extends State<GT7RpmApp> {
         }
 
         // RPM data
-        final newRpm = getFloat(decrypted, rpmOffset); // Use imported function
+        final data = ByteData.sublistView(decrypted);
+        final newRpm = getFloat(data, rpmOffset); // Use imported function
         rpmNotifier.value = newRpm;
       },
       // Stream error handler
