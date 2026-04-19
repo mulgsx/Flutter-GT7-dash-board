@@ -1,55 +1,158 @@
-# CLAUDE.md
+# GT7 Dashboard - Claude Code ガイドライン
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+## プロジェクト情報
 
-## Overview
+- **言語**: Dart (Flutter)
+- **ターゲット**: iOS / Android（横向き）
+- **目的**: Gran Turismo 7 テレメトリー表示ダッシュボード
+- **特徴**: AC ダッシュボードと統一設計
 
-A Flutter app that receives GT7 (Gran Turismo 7) telemetry data over UDP and displays it as a real-time dashboard. GT7 sends encrypted UDP packets (Salsa20) from the PlayStation to port 33740; the app decrypts them and renders telemetry values.
+## ファイル配置ルール
 
-## Commands
+### 1. モデル層 (`lib/models/`)
+```dart
+// lib/models/gt7_models.dart
 
-```bash
-# Run the app
-flutter run
+class GT7Decoder {
+  // 静的メソッド: Salsa20デコード
+  static Uint8List decodeSalsa20(Uint8List encryptedData) { ... }
+  static double getFloat(Uint8List decoded, int offset) { ... }
+}
 
-# Run on a specific device
-flutter run -d <device-id>
+class GT7Packet {
+  // データクラス: パケット構造
+  final double speedKmh;
+  final double engineRPM;
+  final int gear;
+  
+  factory GT7Packet.fromBytes(Uint8List bytes) { ... }
+}
 
-# Build
-flutter build apk        # Android
-flutter build ios        # iOS (requires macOS + Xcode)
-
-# Analyze (lint)
-flutter analyze
-
-# Test
-flutter test
-
-# Install dependencies
-flutter pub get
+// 定数
+const int gt7MagicNumber = 0x47375330;
+final Uint8List gt7KeyBytes = ...;
 ```
 
-## Architecture
+### 2. サービス層 (`lib/services/`)
+```dart
+// lib/services/gt7_telemetry_service.dart
 
-All app logic lives in `lib/` (3 files):
+class GT7TelemetryService {
+  // 状態管理
+  final ValueNotifier<double> rpmNotifier = ValueNotifier(0.0);
+  final ValueNotifier<String> statusNotifier = ValueNotifier('IDLE');
+  
+  // メソッド
+  Future<void> startListening(String targetIp) async { ... }
+  void stopListening() { ... }
+  void _handlePacket(Uint8List rawData) { ... }
+}
+```
 
-- **[lib/main.dart](lib/main.dart)** — Entry point and UI. `GT7RpmAppState` manages the UDP lifecycle (bind, listen, stop), heartbeat timer, and state via `ValueNotifier`. The app is locked to landscape orientation with immersive mode. IP address is persisted via `shared_preferences`.
-- **[lib/gt7_decoder.dart](lib/gt7_decoder.dart)** — Packet decryption. `decodeSalsa20()` reconstructs the 8-byte IV from bytes 64–67 of the encrypted packet (XOR with `0xDEADBEAF`), decrypts with Salsa20 using the hardcoded 32-byte key, and validates the magic number `0x47375330`. Helper `getFloat()` reads little-endian float32 from a decoded packet at a given offset.
-- **[lib/gt7_drawer.dart](lib/gt7_drawer.dart)** — Side drawer widget (`GT7Drawer`) for IP input, start/stop button, packet count, and connection status.
+### 3. ウィジェット層 (`lib/widgets/`)
+```dart
+// AC と共通: telemetry_drawer_widget.dart, rpm_display_widget.dart
+// GT7固有: なし（全て共通化）
+```
 
-## GT7 UDP Protocol
+### 4. 画面層 (`lib/screens/`)
+```dart
+// AC と共通: telemetry_screen.dart
+```
 
-- GT7 sends packets to port **33740** at ~60Hz when the app sends a heartbeat (`"A"`) to port **33739** every 100ms.
-- Packets are Salsa20-encrypted. Key: first 32 bytes of `"Simulator Interface Packet GT7 ver 0.0"`.
-- IV construction: take bytes [64:68] as `iv1` (little-endian uint32), compute `iv2 = iv1 ^ 0xDEADBEAF`, then IV = `[iv2_LE, iv1_LE]` (8 bytes).
-- Magic number at offset 0x00 of decrypted data: `0x47375330` (`GT70`).
-- Full telemetry offset reference is in [packet_structure.md](packet_structure.md). Key offsets: RPM=`0x3C`, Speed=`0x4C`, Gear=`0x90`, Throttle=`0x91`, Brake=`0x92`.
+### 5. 設定層 (`lib/config/`)
+```dart
+// lib/config/app_config.dart
 
-## Key Dependencies
+class GT7Config {
+  static const int receivePort = 33740;
+  static const int sendPort = 33739;
+  static const String defaultIp = '192.168.0.0';
+  static const String prefKey = 'gt7_ps5_ip';
+}
+```
 
-| Package | Purpose |
-|---------|---------|
-| `udp` | UDP socket binding and listening |
-| `pointycastle` | Salsa20 decryption |
-| `cryptography` | (available, not actively used) |
-| `shared_preferences` | Persisting PS5 IP address |
+## 命名規則
+
+| 対象 | ルール | 例 |
+|------|--------|-----|
+| ファイル | `snake_case` | `gt7_models.dart` |
+| クラス | `PascalCase` | `GT7Decoder` |
+| メソッド | `camelCase` | `decodeSalsa20()` |
+| 定数 | `camelCase` または `SCREAMING_SNAKE_CASE` | `gt7MagicNumber` |
+| Notifier | `[名詞]Notifier` | `rpmNotifier` |
+
+## StateManagement パターン
+
+```dart
+// ✅ 推奨: ValueNotifier + ValueListenableBuilder
+final rpmNotifier = ValueNotifier<double>(0.0);
+
+ValueListenableBuilder<double>(
+  valueListenable: rpmNotifier,
+  builder: (_, rpm, __) => Text('$rpm RPM'),
+)
+
+// ❌ 避ける: setState の多用
+```
+
+## エラーハンドリング
+
+```dart
+// ✅ 推奨: log + status notifier
+try {
+  final data = decodeSalsa20(rawData);
+  if (data.isEmpty) {
+    statusNotifier.value = 'ERROR: Decryption failed';
+    return;
+  }
+} catch (e) {
+  print('[ERROR] ${e}');
+  statusNotifier.value = 'ERROR: ${e}';
+}
+```
+
+## リソース管理
+
+```dart
+// ✅ 推奨: 一箇所に集約
+void _stopAll() {
+  _socket?.close();
+  _heartbeatTimer?.cancel();
+  _displayTimer?.cancel();
+}
+
+@override
+void dispose() {
+  _stopAll();
+  super.dispose();
+}
+```
+
+## ログ出力規則
+
+```dart
+print('[LOG] Connection started');      // ✅ 正常系
+print('[DEBUG] Packet size: 296');      // ℹ️ デバッグ情報
+print('[ERROR] Failed to bind: $e');    // ❌ エラー
+```
+
+## テーマング
+
+```dart
+// AC と共通: 同じカラースキーム
+Colors.green.shade700   // 正常
+Colors.red.shade700     // エラー
+Colors.orange.shade700  // 警告
+```
+
+## 構成チェックリスト
+
+- [ ] `lib/config/app_config.dart` に定数を集約
+- [ ] `lib/models/gt7_models.dart` にクラス定義
+- [ ] `lib/services/gt7_telemetry_service.dart` にロジック
+- [ ] `lib/screens/telemetry_screen.dart` は AC と共通
+- [ ] `lib/widgets/` は全て共通（GT7固有なし）
+- [ ] `main.dart` は最小限（System設定のみ）
+- [ ] エラーメッセージは `statusNotifier` で表示
+- [ ] ログには `[LOG]`, `[ERROR]`, `[DEBUG]` プリフィクス

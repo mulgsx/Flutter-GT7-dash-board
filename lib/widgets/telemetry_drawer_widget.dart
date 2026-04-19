@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-class GT7Drawer extends StatelessWidget {
+class TelemetryDrawer extends StatelessWidget {
   final TextEditingController ipController;
   final bool isListening;
   final VoidCallback onStart;
@@ -9,7 +9,7 @@ class GT7Drawer extends StatelessWidget {
   final int packetCount;
   final String status;
 
-  const GT7Drawer({
+  const TelemetryDrawer({
     super.key,
     required this.ipController,
     required this.isListening,
@@ -25,6 +25,9 @@ class GT7Drawer extends StatelessWidget {
       onTap: () => FocusScope.of(context).unfocus(),
       child: Drawer(
         child: SingleChildScrollView(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16.0),
@@ -36,7 +39,7 @@ class GT7Drawer extends StatelessWidget {
                     child: Padding(
                       padding: EdgeInsets.only(top: 16.0, bottom: 8.0),
                       child: Text(
-                        "Menu",
+                        'Menu',
                         style: TextStyle(
                           fontSize: 22,
                           fontWeight: FontWeight.bold,
@@ -51,12 +54,12 @@ class GT7Drawer extends StatelessWidget {
                       decimal: true,
                       signed: false,
                     ),
-                    inputFormatters: <TextInputFormatter>[
+                    inputFormatters: [
                       FilteringTextInputFormatter.allow(RegExp(r'[0-9\.]')),
                     ],
                     decoration: const InputDecoration(
-                      labelText: "PlayStation IP",
-                      hintText: "192.168.0.12",
+                      labelText: 'PlayStation IP',
+                      hintText: '192.168.0.12',
                       border: OutlineInputBorder(),
                     ),
                   ),
@@ -67,19 +70,19 @@ class GT7Drawer extends StatelessWidget {
                       foregroundColor: Colors.white,
                     ),
                     onPressed: isListening ? onStop : onStart,
-                    child: Text(isListening ? "stop" : "start"),
+                    child: Text(isListening ? 'stop' : 'start'),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    "Received Packets: $packetCount",
+                    'Received Packets: $packetCount',
                     style: const TextStyle(fontSize: 16),
                   ),
                   const Divider(),
                   Text(
-                    "Status: $status",
+                    'Status: $status',
                     style: TextStyle(
                       fontSize: 14,
-                      color: status.startsWith("ERROR")
+                      color: status.startsWith('ERROR')
                           ? Colors.red
                           : Colors.green,
                     ),
