@@ -8,6 +8,10 @@ import '../models/gt7_models.dart';
 
 class GT7TelemetryService {
   final ValueNotifier<double> rpmNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> speedKmhNotifier = ValueNotifier(0.0);
+  final ValueNotifier<int> gearNotifier = ValueNotifier(0);
+  final ValueNotifier<double> gasNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> brakeNotifier = ValueNotifier(0.0);
   final ValueNotifier<int> packetCountNotifier = ValueNotifier(0);
   final ValueNotifier<String> statusNotifier = ValueNotifier('IDLE');
   final ValueNotifier<String> currentIpNotifier = ValueNotifier(defaultIp);
@@ -165,6 +169,10 @@ class GT7TelemetryService {
 
     final packet = GT7Packet.fromBytes(decrypted);
     rpmNotifier.value = packet.engineRPM;
+    speedKmhNotifier.value = packet.speedKmh;
+    gearNotifier.value = packet.gear;
+    gasNotifier.value = packet.gas;
+    brakeNotifier.value = packet.brake;
   }
 
   void _sendHeartbeat() async {
@@ -183,6 +191,10 @@ class GT7TelemetryService {
   void dispose() {
     stopListening();
     rpmNotifier.dispose();
+    speedKmhNotifier.dispose();
+    gearNotifier.dispose();
+    gasNotifier.dispose();
+    brakeNotifier.dispose();
     packetCountNotifier.dispose();
     statusNotifier.dispose();
     currentIpNotifier.dispose();

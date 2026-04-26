@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'screens/telemetry_screen.dart';
+import 'screens/retro_dashboard_screen.dart';
 import 'services/gt7_telemetry_service.dart';
 
 void main() {
@@ -60,6 +60,6 @@ class _TelemetryAppScreenState extends State<TelemetryAppScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return TelemetryScreen(service: service);
+    return RetroDashboardScreen(service: service);
   }
 }

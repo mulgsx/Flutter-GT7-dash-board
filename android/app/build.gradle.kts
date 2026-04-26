@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    ndkVersion = "27.0.12077973"
+    ndkVersion = "28.2.13676358"
     namespace = "com.example.gt7_dashborad_flutter"
     compileSdk = flutter.compileSdkVersion
 

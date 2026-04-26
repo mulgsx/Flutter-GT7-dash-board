@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, orientation=landscape">
+<title>GT7 Retro Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 100%; height: 100%;
+    background: #000;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #root {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* Scanlines */
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: repeating-linear-gradient(
+      0deg, transparent, transparent 3px,
+      rgba(0,0,0,0.06) 3px, rgba(0,0,0,0.06) 4px
+    );
+    pointer-events: none;
+    z-index: 999;
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef } = React;
+
+// ── Colors ──────────────────────────────────────────────────────────
+const C = {
+  bg:       '#050d0d',
+  panel:    '#081414',
+  border:   '#0d2020',
+  cyan:     '#00e4ec',
+  cyanDim:  '#041a1c',
+  green:    '#00e87a',
+  greenDim: '#041a0e',
+  amber:    '#ffb300',
+  amberDim: '#1e1400',
+  red:      '#ff3030',
+  redDim:   '#1e0404',
+  white:    '#b8e8e8',
+  dim:      '#0f2424',
+  blue:     '#4488ff',
+};
+
+// ── 7-segment digit ──────────────────────────────────────────────────
+const SEG_MAPS = {
+  '0':[1,1,1,1,1,1,0], '1':[0,1,1,0,0,0,0], '2':[1,1,0,1,1,0,1],
+  '3':[1,1,1,1,0,0,1], '4':[0,1,1,0,0,1,1], '5':[1,0,1,1,0,1,1],
+  '6':[1,0,1,1,1,1,1], '7':[1,1,1,0,0,0,0], '8':[1,1,1,1,1,1,1],
+  '9':[1,1,1,1,0,1,1], '-':[0,0,0,0,0,0,1], ' ':[0,0,0,0,0,0,0],
+};
+
+function SevenSegDigit({ digit, color = C.cyan, dimColor = C.cyanDim, w = 44, h = 72 }) {
+  const segs = SEG_MAPS[String(digit)] || [0,0,0,0,0,0,0];
+  const sw = 6;
+  const sk = 3;
+  const gap = 2;
+  const mid = h / 2;
+  const seg = (on) => ({ fill: on ? color : dimColor, filter: on ? `drop-shadow(0 0 5px ${color})` : 'none' });
+
+  const hSeg = (y, skv) => {
+    const xl = sw + gap + skv; const xr = w - sw - gap + skv;
+    return `${xl+sk},${y} ${xr+sk},${y} ${xr+sk-sw},${y+sw} ${xl+sk-sw},${y+sw}`;
+  };
+  const vSegT = (x, skv) => {
+    const yt = sw + gap; const yb = mid - gap - sw;
+    return `${x+skv+sk},${yt} ${x+sw+skv+sk},${yt+sw} ${x+sw+skv},${yb} ${x+skv},${yb}`;
+  };
+  const vSegB = (x, skv) => {
+    const yt = mid + gap; const yb = h - sw - gap - sw;
+    return `${x+sw+skv},${yt} ${x+sw+skv+sk},${yt+sw} ${x+skv+sk},${yb} ${x+skv},${yb}`;
+  };
+
+  return (
+    <svg width={w} height={h} style={{display:'inline-block', overflow:'visible'}}>
+      <polygon points={hSeg(0, sk)}        style={seg(segs[0])} />
+      <polygon points={vSegT(w-sw-gap, 0)} style={seg(segs[1])} />
+      <polygon points={vSegB(w-sw-gap,-sk)} style={seg(segs[2])} />
+      <polygon points={hSeg(h-sw, -sk)}   style={seg(segs[3])} />
+      <polygon points={vSegB(gap, 0)}      style={seg(segs[4])} />
+      <polygon points={vSegT(gap, sk)}     style={seg(segs[5])} />
+      <polygon points={hSeg(mid-sw/2, 0)} style={seg(segs[6])} />
+    </svg>
+  );
+}
+
+function SevenSegDisplay({ value, digits = 3, color, dimColor, digitW, digitH, gap = 3 }) {
+  const str = String(Math.floor(Math.abs(value))).padStart(digits, ' ');
+  const chars = str.split('').slice(-digits);
+  return (
+    <div style={{display:'flex', alignItems:'center', gap}}>
+      {chars.map((ch, i) => (
+        <SevenSegDigit key={i} digit={ch} color={color} dimColor={dimColor} w={digitW} h={digitH} />
+      ))}
+    </div>
+  );
+}
+
+// ── Tach bar ─────────────────────────────────────────────────────────
+function TachBar({ rpm, rpmWarning = 6500, rpmLimiter = 7500 }) {
+  const rpmMax = 8000;
+  const SEGS = 56;
+  const pct = Math.min(rpm / rpmMax, 1);
+  const active = Math.floor(pct * SEGS);
+
+  const segColor = (i) => {
+    const r = (i / SEGS) * rpmMax;
+    if (r >= rpmLimiter) return C.red;
+    if (r >= rpmWarning) return C.amber;
+    return C.cyan;
+  };
+  const segDim = (i) => {
+    const r = (i / SEGS) * rpmMax;
+    if (r >= rpmLimiter) return C.redDim;
+    if (r >= rpmWarning) return C.amberDim;
+    return C.cyanDim;
+  };
+
+  return (
+    <div style={{width:'100%'}}>
+      {/* Tick labels */}
+      <div style={{display:'flex', justifyContent:'space-between', paddingLeft:4, paddingRight:4, marginBottom:3}}>
+        {[0,1,2,3,4,5,6,7,8].map(n => (
+          <span key={n} style={{
+            color: n >= 8 ? C.red : n >= 7 ? C.amber : C.cyan,
+            fontSize: 9, fontFamily:'Orbitron', letterSpacing:0,
+            textShadow:`0 0 4px ${n >= 8 ? C.red : C.cyan}`, opacity:0.9,
+            width:14, textAlign:'center',
+          }}>{n}</span>
+        ))}
+      </div>
+      {/* Segments */}
+      <div style={{display:'flex', gap:2, alignItems:'flex-end', height:24, padding:'0 4px'}}>
+        {Array.from({length: SEGS}, (_, i) => {
+          const on = i < active;
+          const h = 8 + (i / SEGS) * 12;
+          return (
+            <div key={i} style={{
+              flex:1, height:h,
+              background: on ? segColor(i) : segDim(i),
+              boxShadow: on ? `0 0 5px ${segColor(i)}` : 'none',
+              borderRadius:1,
+            }} />
+          );
+        })}
+      </div>
+      <div style={{textAlign:'center', marginTop:3}}>
+        <span style={{color:C.cyan, fontSize:8, letterSpacing:3, fontFamily:'Orbitron', opacity:0.6}}>
+          TACH × 1000 r/min
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// ── Bar gauge ─────────────────────────────────────────────────────────
+function BarGauge({ value, label, leftLabel, rightLabel, color, width = 120, segs = 12 }) {
+  const pct = Math.min(Math.max(value, 0), 1);
+  const active = Math.floor(pct * segs);
+  const dimColor = color === C.green ? C.greenDim : color === C.red ? C.redDim : C.cyanDim;
+  return (
+    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:3}}>
+      <div style={{display:'flex', justifyContent:'space-between', width}}>
+        <span style={{color, fontSize:8, fontFamily:'Orbitron', opacity:0.7}}>{leftLabel}</span>
+        <span style={{color, fontSize:8, fontFamily:'Orbitron', opacity:0.7}}>{rightLabel}</span>
+      </div>
+      <div style={{display:'flex', gap:2, width}}>
+        {Array.from({length: segs}, (_, i) => {
+          const on = i < active;
+          const segC = color === C.green ? color :
+            (i >= segs * 0.75 ? C.red : i >= segs * 0.55 ? C.amber : color);
+          return (
+            <div key={i} style={{
+              flex:1, height:11,
+              background: on ? segC : dimColor,
+              boxShadow: on ? `0 0 4px ${segC}` : 'none',
+              borderRadius:1,
+            }} />
+          );
+        })}
+      </div>
+      <span style={{color, fontSize:9, fontFamily:'Orbitron', letterSpacing:2,
+        textShadow:`0 0 4px ${color}`}}>{label}</span>
+    </div>
+  );
+}
+
+// ── Gear position selector ─────────────────────────────────────────────
+function GearSelector({ gear }) {
+  const positions = [
+    { label:'P', match: (g) => false },
+    { label:'R', match: (g) => g === -1 },
+    { label:'N', match: (g) => g === 0 },
+    { label:'D', match: (g) => g >= 3 },
+    { label:'2', match: (g) => g === 2 },
+    { label:'L', match: (g) => g === 1 },
+  ];
+  return (
+    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:2}}>
+      <span style={{color:C.dim, fontSize:7, fontFamily:'Orbitron', letterSpacing:1, marginBottom:2}}>SHIFT</span>
+      <div style={{display:'flex', gap:6}}>
+        {positions.map(({ label, match }) => {
+          const active = match(gear);
+          const col = label === 'R' ? C.amber : C.green;
+          return (
+            <div key={label} style={{
+              width:28, height:28,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              background: active ? `${col}1a` : 'transparent',
+              border:`1px solid ${active ? col : '#0f2424'}`,
+              borderRadius:3,
+            }}>
+              <span style={{
+                color: active ? col : '#1a3030',
+                fontSize:13, fontWeight:700, fontFamily:'Orbitron',
+                textShadow: active ? `0 0 8px ${col}` : 'none',
+              }}>{label}</span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ── Turn signal arrow ──────────────────────────────────────────────────
+function TurnArrow({ dir, active }) {
+  const pts = dir === 'left'
+    ? '28,2 2,14 28,26'
+    : '2,2 28,14 2,26';
+  return (
+    <svg width={30} height={28} style={{opacity: active ? 1 : 0.08}}>
+      <polygon points={pts} fill={C.green}
+        style={{filter: active ? `drop-shadow(0 0 8px ${C.green})` : 'none'}} />
+    </svg>
+  );
+}
+
+// ── Warning light ──────────────────────────────────────────────────────
+function WarnLight({ label, active, color, icon }) {
+  return (
+    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:2}}>
+      <div style={{
+        width:30, height:26, borderRadius:3,
+        display:'flex', alignItems:'center', justifyContent:'center',
+        background: active ? `${color}18` : '#050d0d',
+        border:`1px solid ${active ? color : '#0a1a1a'}`,
+        boxShadow: active ? `0 0 8px ${color}` : 'none',
+        transition:'all 0.15s',
+      }}>
+        <span style={{fontSize:13}}>{icon}</span>
+      </div>
+      <span style={{
+        color: active ? color : '#122020',
+        fontSize:6, fontFamily:'Orbitron', letterSpacing:0.3,
+        textShadow: active ? `0 0 4px ${color}` : 'none',
+      }}>{label}</span>
+    </div>
+  );
+}
+
+// ── Clock ──────────────────────────────────────────────────────────────
+function Clock() {
+  const [t, setT] = useState(new Date());
+  useEffect(() => {
+    const id = setInterval(() => setT(new Date()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const h = String(t.getHours()).padStart(2,'0');
+  const m = String(t.getMinutes()).padStart(2,'0');
+  return (
+    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:2}}>
+      <span style={{color:C.dim, fontSize:7, fontFamily:'Orbitron', letterSpacing:1}}>CLOCK</span>
+      <span style={{color:C.green, fontSize:22, fontFamily:'Share Tech Mono',
+        textShadow:`0 0 8px ${C.green}`, letterSpacing:3}}>{h}:{m}</span>
+    </div>
+  );
+}
+
+// ── Odometer ──────────────────────────────────────────────────────────
+function Odometer({ km }) {
+  const str = String(Math.floor(km)).padStart(6,'0');
+  return (
+    <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:2}}>
+      <span style={{color:C.dim, fontSize:7, fontFamily:'Orbitron', letterSpacing:1}}>ODO km</span>
+      <div style={{
+        background:'#020808', border:`1px solid #0d2020`,
+        borderRadius:3, padding:'3px 8px',
+      }}>
+        <span style={{color:C.green, fontSize:18, fontFamily:'Share Tech Mono',
+          textShadow:`0 0 5px ${C.green}`, letterSpacing:4}}>{str}</span>
+      </div>
+    </div>
+  );
+}
+
+// ── Simulation ──────────────────────────────────────────────────────────
+function useCarSim() {
+  const [data, setData] = useState({
+    rpm: 900, speed: 0, gear: 0,
+    fuel: 0.78, waterTemp: 0.45,
+    turnLeft: false, turnRight: false,
+    warnFuel: false, warnEngine: false, warnBrake: false,
+    warnOil: false, warnCharge: false, warnDoor: false,
+    warnLight: false, revLimit: false,
+    odometer: 12847.3,
+  });
+
+  const s = useRef({
+    phase:'idle', phaseT:0, t:0,
+    rpm:900, speed:0, gear:0,
+    fuel:0.78, waterTemp:0.45,
+    turnLeft:false, turnRight:false,
+    turnTimer:0,
+    odo:12847.3,
+  });
+
+  useEffect(() => {
+    const DT = 1/60;
+    const GR = [0, 3.6, 2.2, 1.5, 1.1, 0.85];
+    const FD = 4.1;
+    const WR = 0.31;
+    const rpmFromSpeed = (spd, g) =>
+      g < 1 ? 900 : (spd/3.6) / (WR*2*Math.PI) * 60 * GR[g] * FD;
+    const maxSpeed = (rpm, g) =>
+      g < 1 ? 0 : rpm / GR[g] / FD * (WR*2*Math.PI) / 60 * 3.6;
+
+    const PHASES = [
+      'idle','idle2','signal_l','accel1','shift2','accel2','shift3',
+      'accel3','cruise','signal_r','brake','coast','park'
+    ];
+    const DUR = {
+      idle:2.5, idle2:1, signal_l:2, accel1:4, shift2:0.2, accel2:3.5,
+      shift3:0.2, accel3:3, cruise:4, signal_r:1.5, brake:4, coast:2, park:2,
+    };
+
+    let frame;
+    const tick = () => {
+      const sv = s.current;
+      sv.t += DT;
+      sv.phaseT += DT;
+      const dur = DUR[sv.phase] || 2;
+
+      switch (sv.phase) {
+        case 'idle':
+        case 'idle2':
+          sv.rpm += (850 + Math.sin(sv.t*1.8)*100 - sv.rpm) * 0.06;
+          sv.speed = 0; sv.gear = 0;
+          sv.turnLeft = false; sv.turnRight = false;
+          break;
+        case 'signal_l':
+          sv.rpm += (1000 - sv.rpm) * 0.05;
+          sv.turnLeft = Math.sin(sv.t * 4) > 0;
+          sv.gear = 0;
+          break;
+        case 'accel1':
+          sv.turnLeft = false;
+          sv.gear = 1;
+          sv.rpm = rpmFromSpeed(Math.max(sv.speed, 5), 1);
+          sv.speed = Math.min(maxSpeed(6200, 1), sv.speed + 7 * DT);
+          sv.fuel -= DT * 0.00005;
+          break;
+        case 'shift2':
+          sv.gear = 2; sv.rpm -= 1200 * DT;
+          sv.speed += 1 * DT;
+          break;
+        case 'accel2':
+          sv.gear = 2;
+          sv.rpm = rpmFromSpeed(sv.speed, 2);
+          sv.speed = Math.min(maxSpeed(6200, 2), sv.speed + 5 * DT);
+          sv.fuel -= DT * 0.00005;
+          break;
+        case 'shift3':
+          sv.gear = 3; sv.rpm -= 900 * DT;
+          sv.speed += 0.5 * DT;
+          break;
+        case 'accel3':
+          sv.gear = 3;
+          sv.rpm = rpmFromSpeed(sv.speed, 3);
+          sv.speed = Math.min(maxSpeed(5800, 3), sv.speed + 3 * DT);
+          sv.fuel -= DT * 0.00004;
+          break;
+        case 'cruise':
+          sv.gear = 3;
+          sv.rpm = rpmFromSpeed(sv.speed, 3);
+          sv.speed += (80 - sv.speed) * 0.01;
+          sv.fuel -= DT * 0.00003;
+          break;
+        case 'signal_r':
+          sv.turnRight = Math.sin(sv.t * 4) > 0;
+          sv.rpm += (1500 - sv.rpm) * 0.05;
+          break;
+        case 'brake':
+          sv.turnRight = false;
+          sv.gear = sv.speed < 30 ? 1 : 2;
+          sv.rpm = Math.max(900, rpmFromSpeed(Math.max(sv.speed, 5), sv.gear));
+          sv.speed = Math.max(0, sv.speed - 20 * DT);
+          break;
+        case 'coast':
+          sv.gear = sv.speed < 2 ? 0 : 1;
+          sv.rpm = sv.speed < 2 ? 900 : Math.max(900, rpmFromSpeed(sv.speed, 1));
+          sv.speed = Math.max(0, sv.speed - 4 * DT);
+          break;
+        case 'park':
+          sv.rpm += (850 - sv.rpm) * 0.05;
+          sv.speed = 0; sv.gear = 0;
+          break;
+      }
+
+      // Clamp
+      sv.rpm = Math.max(750, Math.min(sv.rpm, 7600));
+      sv.speed = Math.max(0, sv.speed);
+      sv.fuel = Math.max(0.05, sv.fuel);
+
+      // Water temp warms up slowly
+      sv.waterTemp += (0.85 - sv.waterTemp) * 0.0003;
+
+      // Odometer
+      sv.odo += (sv.speed / 3600) * DT;
+
+      // Advance phase
+      if (sv.phaseT >= dur) {
+        sv.phaseT = 0;
+        const idx = PHASES.indexOf(sv.phase);
+        sv.phase = PHASES[(idx + 1) % PHASES.length];
+      }
+
+      setData({
+        rpm: Math.round(sv.rpm),
+        speed: Math.max(0, sv.speed),
+        gear: sv.gear,
+        fuel: sv.fuel,
+        waterTemp: sv.waterTemp,
+        turnLeft: sv.turnLeft,
+        turnRight: sv.turnRight,
+        warnFuel: sv.fuel < 0.12,
+        warnEngine: false,
+        warnBrake: false,
+        warnOil: false,
+        warnCharge: false,
+        warnDoor: false,
+        warnLight: sv.phase === 'signal_l' || sv.phase === 'signal_r',
+        revLimit: sv.rpm > 7200,
+        odometer: sv.odo,
+      });
+
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
+
+  return data;
+}
+
+// ── Main Dashboard — Landscape ────────────────────────────────────────
+function Dashboard() {
+  const data = useCarSim();
+  const speedKmh = Math.round(data.speed);
+
+  const [flashOn, setFlashOn] = useState(true);
+  useEffect(() => {
+    if (!data.revLimit) { setFlashOn(true); return; }
+    const id = setInterval(() => setFlashOn(f => !f), 80);
+    return () => clearInterval(id);
+  }, [data.revLimit]);
+
+  const dispRpm = data.revLimit && !flashOn ? 0 : data.rpm;
+
+  const panel = {
+    background: C.panel,
+    border: `1px solid ${C.border}`,
+    borderRadius: 8,
+  };
+
+  return (
+    <div style={{
+      width: 844, height: 390,
+      background: C.bg,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 8,
+      padding: '10px 12px',
+      boxSizing: 'border-box',
+      fontFamily: 'Orbitron, monospace',
+    }}>
+
+      {/* ── TACH — full width ───────────────────────────── */}
+      <div style={{...panel, padding:'8px 14px 6px', flexShrink:0}}>
+        <TachBar rpm={dispRpm} />
+      </div>
+
+      {/* ── MIDDLE ROW ──────────────────────────────────── */}
+      <div style={{flex:1, display:'flex', gap:8, minHeight:0}}>
+
+        {/* Left: Clock + Odo */}
+        <div style={{...panel, width:160, display:'flex', flexDirection:'column', justifyContent:'space-evenly', alignItems:'center', padding:'10px 12px'}}>
+          <Clock />
+          <div style={{width:'80%', height:1, background:C.border}} />
+          <Odometer km={data.odometer} />
+        </div>
+
+        {/* Center: Turn + Speed */}
+        <div style={{...panel, flex:1, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', gap:8, padding:'10px 16px'}}>
+          <div style={{display:'flex', alignItems:'center', justifyContent:'center', gap:20}}>
+            <TurnArrow dir="left"  active={data.turnLeft} />
+            <div style={{display:'flex', flexDirection:'column', alignItems:'center', gap:4}}>
+              <SevenSegDisplay
+                value={speedKmh} digits={3}
+                color={C.cyan} dimColor={C.cyanDim}
+                digitW={52} digitH={84} gap={5}
+              />
+              <span style={{color:C.cyan, fontSize:9, letterSpacing:5, fontFamily:'Orbitron',
+                textShadow:`0 0 6px ${C.cyan}`, opacity:0.75}}>SPEED km/h</span>
+            </div>
+            <TurnArrow dir="right" active={data.turnRight} />
+          </div>
+        </div>
+
+        {/* Right: Fuel + Temp */}
+        <div style={{...panel, width:168, display:'flex', flexDirection:'column', justifyContent:'space-evenly', alignItems:'center', padding:'10px 12px'}}>
+          <BarGauge
+            value={data.fuel} label="FUEL"
+            leftLabel="E" rightLabel="F"
+            color={C.green} width={140} segs={12}
+          />
+          <div style={{width:'80%', height:1, background:C.border}} />
+          <BarGauge
+            value={data.waterTemp} label="TEMP"
+            leftLabel="C" rightLabel="H"
+            color={C.cyan} width={140} segs={12}
+          />
+        </div>
+
+      </div>
+
+      {/* ── WARNING LIGHTS — full width ──────────────────── */}
+      <div style={{...panel, padding:'8px 16px', flexShrink:0}}>
+        <div style={{display:'flex', justifyContent:'space-around', alignItems:'flex-start'}}>
+          <WarnLight label="ENGINE" active={data.warnEngine} color={C.amber} icon="⚙" />
+          <WarnLight label="CHARGE" active={data.warnCharge} color={C.amber} icon="⚡" />
+          <WarnLight label="BRAKE"  active={data.warnBrake}  color={C.red}   icon="⊘" />
+          <WarnLight label="OIL"    active={data.warnOil}    color={C.red}   icon="◉" />
+          <WarnLight label="FUEL"   active={data.warnFuel}   color={C.amber} icon="⬡" />
+          <WarnLight label="LIGHT"  active={data.warnLight}  color={C.cyan}  icon="☀" />
+          <WarnLight label="DOOR"   active={data.warnDoor}   color={C.amber} icon="◻" />
+        </div>
+      </div>
+
+    </div>
+  );
+}
+
+// ── Scale wrapper ─────────────────────────────────────────────────────
+function App() {
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const resize = () => {
+      const s = Math.min(window.innerWidth / 844, window.innerHeight / 390);
+      setScale(s);
+    };
+    resize();
+    window.addEventListener('resize', resize);
+    return () => window.removeEventListener('resize', resize);
+  }, []);
+
+  useEffect(() => {
+    const handler = e => {
+      if (e.data?.type === '__activate_edit_mode') {}
+      if (e.data?.type === '__deactivate_edit_mode') {}
+    };
+    window.addEventListener('message', handler);
+    window.parent.postMessage({type:'__edit_mode_available'}, '*');
+    return () => window.removeEventListener('message', handler);
+  }, []);
+
+  return (
+    <div style={{
+      width:'100vw', height:'100vh',
+      background:'#000',
+      display:'flex', alignItems:'center', justifyContent:'center',
+      overflow:'hidden',
+    }}>
+      <div style={{
+        transform:`scale(${scale})`,
+        transformOrigin:'center center',
+      }}>
+        <Dashboard />
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
