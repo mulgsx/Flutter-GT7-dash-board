@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GT7 Octopus Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #05080f;
+      color: #c8d8f0;
+      font-family: 'Orbitron', monospace;
+      width: 100vw; height: 100vh;
+      overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #root { width: 100%; height: 100%; }
+
+    @keyframes tentacleWave {
+      0%, 100% { transform: none; }
+      28%  { transform: translate(2.5px, -2px) rotate(2deg); }
+      72%  { transform: translate(-2.5px, 2px) rotate(-2deg); }
+    }
+    @keyframes redPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.55; }
+    }
+    @keyframes eyeBlink {
+      0%, 85%, 100% { transform: scaleY(1); }
+      91%  { transform: scaleY(0.05); }
+    }
+    @keyframes bounce {
+      0%, 100% { transform: translateY(0); }
+      50%       { transform: translateY(-3px); }
+    }
+    @keyframes scanIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect } = React;
+
+// ─── GT7 Constants ─────────────────────────────────────────────────────────
+const MAX_RPM   = 9000;
+const REDLINE   = 7200;
+const REV_LIMIT = 8800;
+
+// ─── Tachometer Geometry ───────────────────────────────────────────────────
+const CX = 250, CY = 218;
+const GAUGE_R  = 196;
+const TRACK_R  = GAUGE_R - 10;
+const HEAD_R   = 70;   // big cute round head
+const NEEDLE_R = 170;  // beak tip radius
+
+// ─── Helpers ───────────────────────────────────────────────────────────────
+const toRad = d => d * Math.PI / 180;
+const polar = (deg, r, ox = CX, oy = CY) => ({
+  x: ox + r * Math.cos(toRad(deg)),
+  y: oy + r * Math.sin(toRad(deg)),
+});
+// 0 RPM→135°(SW/~7:30), maxRPM→45°(SE/~4:30), clockwise through top
+const rpmToAngle = rpm => 135 + (Math.min(Math.max(rpm, 0), MAX_RPM) / MAX_RPM) * 270;
+
+// Clockwise SVG arc (sweep-flag=1)
+const makeArc = (a0, a1, r) => {
+  const s  = polar(a0, r);
+  const e  = polar(a1, r);
+  const sw = ((a1 - a0) + 360) % 360 || 360;
+  const lg = sw > 180 ? 1 : 0;
+  return `M${s.x.toFixed(2)},${s.y.toFixed(2)} A${r},${r},0,${lg},1,${e.x.toFixed(2)},${e.y.toFixed(2)}`;
+};
+
+// Cubic Bézier point at t
+const bez = (t, p0, p1, p2, p3) => ({
+  x: (1-t)**3*p0.x + 3*(1-t)**2*t*p1.x + 3*(1-t)*t**2*p2.x + t**3*p3.x,
+  y: (1-t)**3*p0.y + 3*(1-t)**2*t*p1.y + 3*(1-t)*t**2*p2.y + t**3*p3.y,
+});
+
+const fmtLap = ms => {
+  if (!ms || ms < 0) return '--:--.---';
+  const m = Math.floor(ms/60000), s = Math.floor((ms%60000)/1000), f = ms%1000;
+  return `${m}:${String(s).padStart(2,'0')}.${String(f).padStart(3,'0')}`;
+};
+
+// ─── SVG Defs ──────────────────────────────────────────────────────────────
+function SvgDefs({ isRed }) {
+  return (
+    <defs>
+      <radialGradient id="bgGrad" cx="50%" cy="50%">
+        <stop offset="0%"   stopColor="#0d1728"/>
+        <stop offset="100%" stopColor="#050810"/>
+      </radialGradient>
+
+      {/* Cute red octopus head gradient */}
+      <radialGradient id="headGrad" cx="42%" cy="35%">
+        <stop offset="0%"   stopColor={isRed ? '#ff6060' : '#ee4444'}/>
+        <stop offset="60%"  stopColor={isRed ? '#ee2020' : '#cc1a1a'}/>
+        <stop offset="100%" stopColor={isRed ? '#aa0a0a' : '#8a0a0a'}/>
+      </radialGradient>
+
+      {/* Beak gradient */}
+      <linearGradient id="beakGrad" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse">
+        <stop offset="0%"   stopColor="#e87a20"/>
+        <stop offset="100%" stopColor="#f5a030"/>
+      </linearGradient>
+
+      <filter id="glowCyan" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="4" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glowRed" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="6" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="glowOrange" x="-50%" y="-50%" width="200%" height="200%">
+        <feGaussianBlur stdDeviation="5" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+      <filter id="softBlur">
+        <feGaussianBlur stdDeviation="6"/>
+      </filter>
+      <filter id="octopusShadow">
+        <feDropShadow dx="0" dy="4" stdDeviation="6" floodColor="#000" floodOpacity="0.35"/>
+      </filter>
+    </defs>
+  );
+}
+
+// ─── Gauge Arc Tracks ──────────────────────────────────────────────────────
+function GaugeArcs({ rpm }) {
+  const cur   = rpmToAngle(rpm);
+  const red   = rpmToAngle(REDLINE);
+  const lim   = rpmToAngle(REV_LIMIT);
+  const isRed = rpm >= REDLINE;
+  return (
+    <g>
+      <path d={makeArc(red, 45, TRACK_R)} fill="none" stroke="#4a0808" strokeWidth={16}/>
+      <path d={makeArc(135, red, TRACK_R)} fill="none" stroke="#0e1e32" strokeWidth={16}/>
+      {rpm > 20 && (
+        <path d={makeArc(135, Math.min(cur, red), TRACK_R)} fill="none"
+              stroke="#22d3ee" strokeWidth={13} strokeLinecap="round" filter="url(#glowCyan)"/>
+      )}
+      {rpm >= REDLINE && (
+        <path d={makeArc(red, Math.min(cur, lim), TRACK_R)} fill="none"
+              stroke="#ef4444" strokeWidth={15} strokeLinecap="round" filter="url(#glowRed)"
+              style={{ animation: 'redPulse 0.2s ease-in-out infinite' }}/>
+      )}
+      <path d={makeArc(135, 45, GAUGE_R)} fill="none" stroke="#162540" strokeWidth={2}/>
+      <path d={makeArc(135, 45, TRACK_R - 10)} fill="none" stroke="#0a1525" strokeWidth={1.5}/>
+    </g>
+  );
+}
+
+// ─── Tick Marks ────────────────────────────────────────────────────────────
+function GaugeTicks() {
+  const marks = [];
+  for (let r = 0; r <= MAX_RPM; r += 500) {
+    const a = rpmToAngle(r), major = r % 1000 === 0, isRed = r >= REDLINE;
+    const o = polar(a, GAUGE_R - 2), i = polar(a, GAUGE_R - (major ? 24 : 12));
+    const lbl = polar(a, GAUGE_R - 40);
+    marks.push(
+      <g key={r}>
+        <line x1={i.x.toFixed(1)} y1={i.y.toFixed(1)} x2={o.x.toFixed(1)} y2={o.y.toFixed(1)}
+              stroke={isRed ? '#f87171' : '#233550'} strokeWidth={major ? 2.5 : 1.2}/>
+        {major && (
+          <text x={lbl.x.toFixed(1)} y={lbl.y.toFixed(1)}
+                textAnchor="middle" dominantBaseline="middle"
+                fontSize="13.5" fontFamily="Orbitron" fontWeight="700"
+                fill={isRed ? '#f87171' : '#2d4d70'}>
+            {r / 1000}
+          </text>
+        )}
+      </g>
+    );
+  }
+  return <g>{marks}</g>;
+}
+
+// ─── CUTE CHUNKY TENTACLES ─────────────────────────────────────────────────
+function Tentacles({ isRed }) {
+  // 8 tentacles all pointing DOWNWARD (SVG: 90° = straight down)
+  // spread from 4 o'clock (30°) to 8 o'clock (150°) — all have positive sin = downward
+  const configs = [
+    { a: 32,  len: 86,  curl: -1, delay: 0.00 },
+    { a: 48,  len: 94,  curl:  1, delay: 0.15 },
+    { a: 65,  len: 100, curl: -1, delay: 0.28 },
+    { a: 82,  len: 104, curl:  1, delay: 0.40 },
+    { a: 99,  len: 104, curl: -1, delay: 0.50 },
+    { a: 116, len: 100, curl:  1, delay: 0.58 },
+    { a: 133, len: 94,  curl: -1, delay: 0.65 },
+    { a: 149, len: 86,  curl:  1, delay: 0.70 },
+  ];
+
+  const bodyClr = isRed ? '#cc1a1a' : '#cc1a1a';   // always red
+  const spotClr = '#e87030';                         // always orange spots
+
+  return (
+    <g>
+      {configs.map(({ a, len, curl, delay }, i) => {
+        const pA  = a + 90;
+        const s   = polar(a, HEAD_R * 0.9);
+        const p1  = {
+          x: s.x + len*0.40*Math.cos(toRad(a)) + curl*20*Math.cos(toRad(pA)),
+          y: s.y + len*0.40*Math.sin(toRad(a)) + curl*20*Math.sin(toRad(pA)),
+        };
+        const p2  = {
+          x: s.x + len*0.75*Math.cos(toRad(a)) - curl*12*Math.cos(toRad(pA)),
+          y: s.y + len*0.75*Math.sin(toRad(a)) - curl*12*Math.sin(toRad(pA)),
+        };
+        const e   = { x: s.x + len*Math.cos(toRad(a)), y: s.y + len*Math.sin(toRad(a)) };
+        const spots = [0.28, 0.54, 0.78].map(t => bez(t, s, p1, p2, e));
+        // Curled tip
+        const curlAng = a + curl * 70;
+        const tipCurl = {
+          x: e.x + 22 * Math.cos(toRad(curlAng)),
+          y: e.y + 22 * Math.sin(toRad(curlAng)),
+        };
+
+        return (
+          <g key={i} style={{
+            animation: `tentacleWave ${1.4 + i*0.18}s ease-in-out infinite`,
+            animationDelay: `${delay}s`,
+            transformOrigin: `${s.x.toFixed(0)}px ${s.y.toFixed(0)}px`,
+          }}>
+            {/* Thick chunky tentacle */}
+            <path
+              d={`M${s.x.toFixed(1)},${s.y.toFixed(1)} C${p1.x.toFixed(1)},${p1.y.toFixed(1)} ${p2.x.toFixed(1)},${p2.y.toFixed(1)} ${e.x.toFixed(1)},${e.y.toFixed(1)}`}
+              stroke={bodyClr} strokeWidth="22" fill="none" strokeLinecap="round"
+            />
+            {/* Curled tip */}
+            <path d={`M${e.x.toFixed(1)},${e.y.toFixed(1)} Q${tipCurl.x.toFixed(1)},${tipCurl.y.toFixed(1)} ${((e.x+tipCurl.x)/2).toFixed(1)},${((e.y+tipCurl.y)/2).toFixed(1)}`}
+              stroke={bodyClr} strokeWidth="14" fill="none" strokeLinecap="round"/>
+            {/* Orange spots */}
+            {spots.map((pt, si) => (
+              <circle key={si} cx={pt.x.toFixed(1)} cy={pt.y.toFixed(1)}
+                      r="9" fill={spotClr}/>
+            ))}
+          </g>
+        );
+      })}
+    </g>
+  );
+}
+
+// ─── BEAK / NOSE NEEDLE ────────────────────────────────────────────────────
+// Computed from angle — no CSS transform needed
+function BeakNeedle({ rpm }) {
+  const a      = rpmToAngle(rpm);
+  const aR     = toRad(a);
+  const perpR  = toRad(a + 90);
+  const isRed  = rpm >= REDLINE;
+
+  // Nose/beak tip at gauge arc
+  const tip   = { x: CX + NEEDLE_R*Math.cos(aR), y: CY + NEEDLE_R*Math.sin(aR) };
+  // Base width (half) at the mouth opening
+  const bw     = 17;
+  const bL     = { x: CX + bw*Math.cos(perpR), y: CY + bw*Math.sin(perpR) };
+  const bR     = { x: CX - bw*Math.cos(perpR), y: CY - bw*Math.sin(perpR) };
+
+  // Curve-out control points: slightly puff the sides of the nose
+  const ctrlPuff = 12; // lateral puff
+  const ctrlFwd  = NEEDLE_R * 0.55;
+  const cL = {
+    x: bL.x + ctrlFwd*Math.cos(aR) + ctrlPuff*Math.cos(perpR),
+    y: bL.y + ctrlFwd*Math.sin(aR) + ctrlPuff*Math.sin(perpR),
+  };
+  const cR = {
+    x: bR.x + ctrlFwd*Math.cos(aR) - ctrlPuff*Math.cos(perpR),
+    y: bR.y + ctrlFwd*Math.sin(aR) - ctrlPuff*Math.sin(perpR),
+  };
+
+  // Back counterweight (round nub behind center)
+  const back   = { x: CX - 30*Math.cos(aR), y: CY - 30*Math.sin(aR) };
+
+  const beakClr = isRed ? '#fca5a5' : '#f0921a';
+  const glowFlt = isRed ? 'url(#glowRed)' : 'url(#glowOrange)';
+
+  return (
+    <g>
+      {/* Cone-shaped beak/nose */}
+      <path
+        d={`M${bL.x.toFixed(1)},${bL.y.toFixed(1)} Q${cL.x.toFixed(1)},${cL.y.toFixed(1)} ${tip.x.toFixed(1)},${tip.y.toFixed(1)} Q${cR.x.toFixed(1)},${cR.y.toFixed(1)} ${bR.x.toFixed(1)},${bR.y.toFixed(1)} Z`}
+        fill={beakClr} filter={glowFlt}
+      />
+      {/* Nose tip glow dot */}
+      <circle cx={tip.x.toFixed(1)} cy={tip.y.toFixed(1)} r="6"
+              fill={beakClr} filter={glowFlt}/>
+      {/* Darker crease on nose */}
+      <path
+        d={`M${bL.x.toFixed(1)},${bL.y.toFixed(1)} Q${(CX + NEEDLE_R*0.25*Math.cos(aR)).toFixed(1)},${(CY + NEEDLE_R*0.25*Math.sin(aR)).toFixed(1)} ${bR.x.toFixed(1)},${bR.y.toFixed(1)}`}
+        stroke={isRed ? '#dc4444' : '#b85a0a'} strokeWidth="2" fill="none" opacity="0.5"
+      />
+      {/* Counterweight nub */}
+      <circle cx={back.x.toFixed(1)} cy={back.y.toFixed(1)} r="13"
+              fill="#1a0a30" stroke={isRed ? '#cc1a1a' : '#5b21b6'} strokeWidth="2"/>
+    </g>
+  );
+}
+
+// ─── OCTOPUS HEAD BACKGROUND (drawn before beak) ──────────────────────────
+function OctopusHeadBack({ rpm }) {
+  const isRed = rpm >= REDLINE;
+  const auraColor = isRed ? 'rgba(220,30,30,0.35)' : 'rgba(200,30,30,0.18)';
+  return (
+    <g>
+      {/* Soft aura */}
+      <circle cx={CX} cy={CY} r={HEAD_R + 20}
+              fill={auraColor} filter="url(#softBlur)"
+              style={{ animation: isRed ? 'redPulse 0.2s infinite' : 'none' }}/>
+      {/* Head fill */}
+      <circle cx={CX} cy={CY} r={HEAD_R}
+              fill="url(#headGrad)" filter="url(#octopusShadow)"/>
+      {/* Head sheen */}
+      <path d={`M${CX-55},${CY-28} Q${CX-42},${CY-72} ${CX+10},${CY-68}`}
+            stroke="rgba(255,255,255,0.12)" strokeWidth="10" fill="none" strokeLinecap="round"/>
+    </g>
+  );
+}
+
+// ─── OCTOPUS FACE FRONT (drawn on top of beak) ────────────────────────────
+function OctopusFaceFront({ rpm }) {
+  const a      = rpmToAngle(rpm);
+  const aR     = toRad(a);
+  const isRed  = rpm >= REDLINE;
+  const rpmPct = rpm / MAX_RPM;
+
+  const pupilDx = Math.cos(aR) * 5;
+  const pupilDy = Math.sin(aR) * 5;
+  const browRaise = rpmPct > 0.7 ? (rpmPct - 0.7) * 16 : 0;
+  const blush = Math.max(0, Math.min((rpm - 4000) / 5000, 0.55));
+
+  return (
+    <g>
+      {/* ── Eyebrows ── */}
+      <path d={`M${CX-40},${CY-40-browRaise} Q${CX-26},${CY-50-browRaise} ${CX-14},${CY-42-browRaise}`}
+            stroke="#6a0808" strokeWidth="4" fill="none" strokeLinecap="round"/>
+      <path d={`M${CX+14},${CY-42-browRaise} Q${CX+26},${CY-50-browRaise} ${CX+40},${CY-40-browRaise}`}
+            stroke="#6a0808" strokeWidth="4" fill="none" strokeLinecap="round"/>
+
+      {/* ── Eyes ── */}
+      <circle cx={CX-24} cy={CY-26} r={16} fill="#140404"
+              style={{ animation: 'eyeBlink 4s ease-in-out infinite', transformOrigin: `${CX-24}px ${CY-26}px` }}/>
+      <circle cx={CX+24} cy={CY-26} r={16} fill="#140404"
+              style={{ animation: 'eyeBlink 4s ease-in-out infinite 0.07s', transformOrigin: `${CX+24}px ${CY-26}px` }}/>
+
+      {/* Pupils */}
+      <circle cx={(CX-24+pupilDx*0.5).toFixed(1)} cy={(CY-26+pupilDy*0.5).toFixed(1)} r="9" fill="#0a0202"/>
+      <circle cx={(CX+24+pupilDx*0.5).toFixed(1)} cy={(CY-26+pupilDy*0.5).toFixed(1)} r="9" fill="#0a0202"/>
+
+      {/* Eye highlights */}
+      <circle cx={(CX-30+pupilDx*0.25).toFixed(1)} cy={(CY-33+pupilDy*0.25).toFixed(1)} r="4.5" fill="white" opacity="0.9"/>
+      <circle cx={(CX+18+pupilDx*0.25).toFixed(1)} cy={(CY-33+pupilDy*0.25).toFixed(1)} r="4.5" fill="white" opacity="0.9"/>
+      <circle cx={(CX-20+pupilDx*0.25).toFixed(1)} cy={(CY-18+pupilDy*0.25).toFixed(1)} r="2" fill="white" opacity="0.45"/>
+      <circle cx={(CX+28+pupilDx*0.25).toFixed(1)} cy={(CY-18+pupilDy*0.25).toFixed(1)} r="2" fill="white" opacity="0.45"/>
+
+      {/* Blush */}
+      {blush > 0 && (<>
+        <circle cx={CX-42} cy={CY-8} r={14} fill="#f87171" opacity={blush*0.5} filter="url(#softBlur)"/>
+        <circle cx={CX+42} cy={CY-8} r={14} fill="#f87171" opacity={blush*0.5} filter="url(#softBlur)"/>
+      </>)}
+
+      {/* ── Mouth ring (frames the beak base at CX,CY) ── */}
+      {/* Outer orange ring — beak emerges from here */}
+      <circle cx={CX} cy={CY} r={20} fill="#c04820" stroke="#7a1c06" strokeWidth="2"/>
+      {/* Dark interior — beak passes through */}
+      <circle cx={CX} cy={CY} r={12} fill="#3a0804"/>
+      {/* Mouth rim shine */}
+      <path d={`M${CX-11},${CY-10} Q${CX},${CY-13} ${CX+11},${CY-10}`}
+            stroke="rgba(255,140,60,0.45)" strokeWidth="3" fill="none" strokeLinecap="round"/>
+    </g>
+  );
+}
+
+// ─── Complete Tachometer SVG ───────────────────────────────────────────────
+function OctopusTachometer({ rpm }) {
+  const isRed = rpm >= REDLINE;
+  return (
+    <svg viewBox="0 0 500 520" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
+      <SvgDefs isRed={isRed}/>
+
+      {/* Gauge background */}
+      <circle cx={CX} cy={CY} r={GAUGE_R + 12}
+              fill="url(#bgGrad)" stroke="#0f1e30" strokeWidth="2.5"/>
+
+      {/* Gauge arcs + ticks */}
+      <GaugeArcs rpm={rpm}/>
+      <GaugeTicks/>
+
+      {/* Label */}
+      <text x={CX} y={CY + 150} textAnchor="middle"
+            fontSize="11" fontFamily="Orbitron" fill="#1e3450" letterSpacing="3">
+        ×1000 RPM
+      </text>
+
+      {/* Tentacles — bottom layer */}
+      <Tentacles isRed={isRed}/>
+
+      {/* Head background — behind beak */}
+      <OctopusHeadBack rpm={rpm}/>
+
+      {/* Beak needle — emerges from mouth center */}
+      <BeakNeedle rpm={rpm}/>
+
+      {/* Face front (mouth ring, eyes, eyebrows) — on top of beak */}
+      <OctopusFaceFront rpm={rpm}/>
+    </svg>
+  );
+}
+
+// ─── Pedal Bar ─────────────────────────────────────────────────────────────
+function PedalBar({ label, value, color }) {
+  return (
+    <div>
+      <div style={{ fontSize: 9, letterSpacing: '0.3em', color: '#2d4d70', marginBottom: 5 }}>
+        {label}
+      </div>
+      <div style={{
+        height: 96, background: '#080e1c', borderRadius: 3, overflow: 'hidden',
+        display: 'flex', flexDirection: 'column-reverse',
+        border: '1px solid #111e30',
+      }}>
+        <div style={{
+          width: '100%',
+          height: `${Math.min(value * 100, 100)}%`,
+          background: color,
+          transition: 'height 0.04s linear',
+          boxShadow: `0 0 10px ${color}60`,
+        }}/>
+      </div>
+      <div style={{ fontSize: 12, fontFamily: 'Orbitron', color, textAlign: 'right', marginTop: 3 }}>
+        {Math.round(value * 100)}%
+      </div>
+    </div>
+  );
+}
+
+const Sep = () => <div style={{ borderTop: '1px solid #0f1e30', margin: '4px 0' }}/>;
+const InfoRow = ({ label, value, color = '#4a6e90' }) => (
+  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+    <span style={{ fontSize: 9, letterSpacing: '0.25em', color: '#2d4d70' }}>{label}</span>
+    <span style={{ fontSize: 13, fontFamily: 'Orbitron', color }}>{value}</span>
+  </div>
+);
+
+// ─── Main Dashboard ────────────────────────────────────────────────────────
+function Dashboard() {
+  const [data, setData] = useState({
+    rpm: 800, speed: 0, gear: 1,
+    throttle: 0, brake: 0,
+    fuel: 0.72,
+    boost: 0, waterTemp: 85, oilTemp: 110,
+  });
+  const lastLap = 93421, bestLap = 91842;
+  const currentLap = 3, totalLaps = 8;
+  const position = 3, totalPositions = 16;
+
+  useEffect(() => {
+    let rafId;
+    const animate = ts => {
+      const t = ts / 1000;
+      const wave1 = Math.sin(t * 0.55) * 0.5 + 0.5;
+      const burst1 = Math.max(0, Math.sin(t * 2.1 + 0.5) * 0.42);
+      const burst2 = Math.max(0, Math.sin(t * 1.3 + 1.8) * 0.24);
+      const rpmRaw = (wave1 * 0.65 + burst1 + burst2) * MAX_RPM;
+      const rpm = Math.min(Math.max(rpmRaw, 700), REV_LIMIT);
+      const speed = (rpm / MAX_RPM) * 285;
+      const throttle = Math.min(1, wave1 * 0.75 + burst1 * 0.55 + burst2 * 0.3);
+      const brake = Math.max(0, -(Math.sin(t * 1.7)) * 0.48);
+      const boost = Math.max(0, (rpm - 4000) / 5000) * 0.8;
+      const fuel = Math.max(0.1, 0.72 - t * 0.001);
+      let gear = 1;
+      if (speed > 45)  gear = 2;
+      if (speed > 90)  gear = 3;
+      if (speed > 140) gear = 4;
+      if (speed > 190) gear = 5;
+      if (speed > 240) gear = 6;
+      setData({ rpm, speed, gear, throttle, brake, boost, fuel, waterTemp: 85, oilTemp: 110 });
+      rafId = requestAnimationFrame(animate);
+    };
+    rafId = requestAnimationFrame(animate);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  const { rpm, speed, gear, throttle, brake, boost, fuel } = data;
+  const isRed   = rpm >= REDLINE;
+  const gearClr = isRed ? '#ef4444' : gear >= 5 ? '#f59e0b' : '#22d3ee';
+  const rpmClr  = isRed ? '#ef4444' : '#ddeeff';
+
+  const panel = {
+    background: '#07101f', border: '1px solid #0f1e30',
+    borderRadius: 6, padding: '14px 16px',
+    display: 'flex', flexDirection: 'column', gap: 10,
+  };
+
+  return (
+    <div style={{ width: '100vw', height: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+      {/* Dot grid BG */}
+      <div style={{
+        position: 'absolute', inset: 0, pointerEvents: 'none',
+        backgroundImage: 'radial-gradient(circle, #12233a 1px, transparent 1px)',
+        backgroundSize: '28px 28px', opacity: 0.22,
+      }}/>
+      {/* Redline screen flash */}
+      {isRed && (
+        <div style={{
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          background: 'radial-gradient(ellipse at center, transparent 40%, rgba(200,20,20,0.07) 100%)',
+          animation: 'redPulse 0.2s ease-in-out infinite',
+        }}/>
+      )}
+
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        gap: 24, width: '100%', maxWidth: 1280,
+        padding: '0 28px', position: 'relative', zIndex: 1,
+      }}>
+        {/* ── TACHOMETER ONLY ── */}
+        <div style={{ flex: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 12 }}>
+          <div style={{ width: 'min(88vh, 680px)', aspectRatio: '500 / 520' }}>
+            <OctopusTachometer rpm={rpm}/>
+          </div>
+          <div style={{ textAlign: 'center' }}>
+            <div style={{
+              fontSize: 36, fontWeight: 700,
+              color: rpmClr, textShadow: isRed ? '0 0 18px #ef4444' : '0 0 10px #06b6d420',
+              fontFamily: 'Orbitron', transition: 'color 0.08s',
+            }}>
+              {Math.round(rpm).toLocaleString()}
+            </div>
+            <div style={{ fontSize: 9, letterSpacing: '0.35em', color: isRed ? '#ef444488' : '#2d4d70' }}>
+              {isRed ? '⚠ REDLINE' : 'ENGINE RPM'}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Top bar */}
+      <div style={{
+        position: 'absolute', top: 16, left: 0, right: 0,
+        display: 'flex', justifyContent: 'center', gap: 40,
+        fontSize: 10, letterSpacing: '0.25em', color: '#1d3450',
+        animation: 'scanIn 0.6s ease both',
+      }}>
+        <span>GT7 TELEMETRY DASHBOARD</span>
+        <span style={{ color: '#22d3ee30' }}>●</span>
+        <span>SALSA20 DECODE</span>
+        <span style={{ color: '#22d3ee30' }}>●</span>
+        <span>60 Hz UDP</span>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<Dashboard/>);
+</script>
+</body>
+</html>

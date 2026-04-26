@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../services/gt7_telemetry_service.dart';
 import '../widgets/telemetry_drawer_widget.dart';
-import '../widgets/rpm_display_widget.dart';
+import '../widgets/octopus_tachometer_widget.dart';
 
 class TelemetryScreen extends StatelessWidget {
   final GT7TelemetryService service;
@@ -20,6 +20,7 @@ class TelemetryScreen extends StatelessWidget {
               valueListenable: service.statusNotifier,
               builder: (context, status, _) {
                 return Scaffold(
+                  backgroundColor: const Color(0xFF05080F),
                   drawer: TelemetryDrawer(
                     ipController: service.ipController,
                     isListening: isListening,
@@ -29,37 +30,21 @@ class TelemetryScreen extends StatelessWidget {
                     packetCount: count,
                     status: status,
                   ),
-                  appBar: AppBar(
-                    title: const Text('GT7 Dashboard'),
-                    leading: SafeArea(
-                      child: Builder(
-                        builder: (context) => IconButton(
-                          icon: const Icon(Icons.menu),
-                          onPressed: () => Scaffold.of(context).openDrawer(),
+                  // Floating menu button — doesn't push the tachometer down
+                  body: Stack(
+                    children: [
+                      OctopusTachometer(rpmNotifier: service.rpmNotifier),
+                      SafeArea(
+                        child: Builder(
+                          builder: (context) => IconButton(
+                            icon: const Icon(Icons.menu,
+                                color: Color(0xFF2D4D70)),
+                            onPressed: () =>
+                                Scaffold.of(context).openDrawer(),
+                          ),
                         ),
                       ),
-                    ),
-                  ),
-                  body: SafeArea(
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: SingleChildScrollView(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            Card(
-                              elevation: 2,
-                              child: Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: RpmDisplay(
-                                  rpmNotifier: service.rpmNotifier,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
+                    ],
                   ),
                 );
               },
