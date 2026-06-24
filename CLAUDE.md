@@ -137,10 +137,9 @@ print('[DEBUG] Packet size: 296');      // ℹ️ デバッグ情報
 print('[ERROR] Failed to bind: $e');    // ❌ エラー
 ```
 
-## テーマング
+## テーマカラー
 
 ```dart
-// AC と共通: 同じカラースキーム
 Colors.green.shade700   // 正常
 Colors.red.shade700     // エラー
 Colors.orange.shade700  // 警告

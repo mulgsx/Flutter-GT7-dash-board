@@ -42,6 +42,8 @@ class TelemetryScreen extends StatelessWidget {
                   ),
                   body: SafeArea(
                     child: Padding(
+                      // ここにコンテンツを追加
+                      // add content here
                       padding: const EdgeInsets.all(16.0),
                       child: SingleChildScrollView(
                         child: Column(
@@ -51,6 +53,8 @@ class TelemetryScreen extends StatelessWidget {
                               elevation: 2,
                               child: Padding(
                                 padding: const EdgeInsets.all(16.0),
+                                // RPMを表示
+                                // show RPM
                                 child: RpmDisplay(
                                   rpmNotifier: service.rpmNotifier,
                                 ),
