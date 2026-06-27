@@ -19,6 +19,8 @@ class GT7TelemetryService {
   Timer? _heartbeatTimer;
   Timer? _displayUpdateTimer;
 
+  // 60Hz でインクリメント。UIへの反映は _displayUpdateTimer で200ms に間引く
+  // Incremented at 60 Hz; throttled to UI via _displayUpdateTimer at 200 ms
   int _rawPacketCount = 0;
   String _targetIp = defaultIp;
 
@@ -83,6 +85,7 @@ class GT7TelemetryService {
     _rawPacketCount = 0;
     packetCountNotifier.value = 0;
 
+    // 60fps の UI 再ビルドを抑制するため200ms で間引く / Throttle to suppress 60 fps UI rebuilds
     _displayUpdateTimer?.cancel();
     _displayUpdateTimer = Timer.periodic(const Duration(milliseconds: 200), (_) {
       if (packetCountNotifier.value != _rawPacketCount) {
@@ -90,6 +93,7 @@ class GT7TelemetryService {
       }
     });
 
+    // PS5 はこれが途絶えると約5秒でテレメトリ送信を停止する / PS5 stops sending within ~5s without this
     _heartbeatTimer = Timer.periodic(const Duration(milliseconds: 100), (_) {
       _sendHeartbeat();
     });
@@ -125,6 +129,7 @@ class GT7TelemetryService {
 
     isListeningNotifier.value = false;
 
+    // ERROR ステータスは停止時に上書きしない / Preserve ERROR status on stop
     if (!statusNotifier.value.startsWith('ERROR')) {
       statusNotifier.value = 'IDLE: Listening stopped.';
     }
@@ -139,6 +144,7 @@ class GT7TelemetryService {
     }
 
     final receivedIp = datagram.address.host;
+    // 対象外 IP からのパケットは無視する / Ignore packets from other senders
     if (receivedIp != _targetIp) {
       print('[DEBUG] Received packet from wrong IP: $receivedIp (Expected: $_targetIp)');
       return;

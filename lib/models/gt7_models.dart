@@ -2,8 +2,8 @@ import 'dart:typed_data';
 import 'package:pointycastle/api.dart';
 import 'package:pointycastle/stream/salsa20.dart';
 
-const int gt7MagicNumber = 0x47375330;
-const int _deadbeaf = 0xDEADBEAF;
+const int gt7MagicNumber = 0x47375330; // ASCII "GT70" — 復号成功の証明 / Proves successful decryption
+const int _deadbeaf = 0xDEADBEAF;     // IV導出用XOR定数（BEEF ではなく BEAF）/ XOR constant for IV (BEAF not BEEF)
 
 const int rpmOffset = 0x3C;
 const int speedOffset = 0x4C;
@@ -12,6 +12,7 @@ const int throttleOffset = 0x91;
 const int brakeOffset = 0x92;
 const int lastLapOffset = 0x7C;
 
+// Salsa20キー: 固定文字列の先頭32バイト / Salsa20 key: first 32 bytes of the fixed ASCII string
 final Uint8List gt7KeyBytes = Uint8List.fromList(
   'Simulator Interface Packet GT7 ver 0.0'.codeUnits,
 ).sublist(0, 32);
@@ -24,6 +25,9 @@ class GT7Decoder {
     }
 
     try {
+      // IV導出: encrypted[64:68] → iv1、iv2 = iv1 XOR DEADBEAF
+      // iv = iv2_LE(4byte) + iv1_LE(4byte) ← 順序が逆になることに注意
+      // IV derivation: iv2 = iv1 XOR DEADBEAF; iv = iv2_LE + iv1_LE (order matters)
       final ivBytesSource = encryptedData.sublist(64, 68);
       final data = ByteData.sublistView(ivBytesSource);
 
@@ -98,8 +102,8 @@ class GT7Packet {
     return GT7Packet(
       speedKmh: speedMs * 3.6,
       engineRPM: data.getFloat32(rpmOffset, Endian.little),
-      gear: gearByte & 0x0F,
-      gas: throttleByte / 255.0,
+      gear: gearByte & 0x0F,        // 下位4ビット=現在ギア、上位4ビット=推奨ギア(15=提示なし) / lower=current, upper=suggested(15=none)
+      gas: throttleByte / 255.0,    // 0〜255 → 0.0〜1.0 に正規化 / Normalize 0-255 to 0.0-1.0
       brake: brakeByte / 255.0,
       lapTime: lapTimeMs,
     );
