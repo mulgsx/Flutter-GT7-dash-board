@@ -8,6 +8,8 @@ class GT7Drawer extends StatelessWidget {
   final VoidCallback onStop;
   final int packetCount;
   final String status;
+  final int currentScreen;
+  final void Function(int) onScreenChange;
 
   const GT7Drawer({
     super.key,
@@ -17,6 +19,8 @@ class GT7Drawer extends StatelessWidget {
     required this.onStop,
     required this.packetCount,
     required this.status,
+    required this.currentScreen,
+    required this.onScreenChange,
   });
 
   @override
@@ -43,6 +47,38 @@ class GT7Drawer extends StatelessWidget {
                         ),
                       ),
                     ),
+                  ),
+                  const Divider(),
+                  // 画面切り替え
+                  ListTile(
+                    leading: const Icon(Icons.dashboard),
+                    title: const Text("ダッシュボード"),
+                    selected: currentScreen == 0,
+                    selectedColor: Colors.blue,
+                    onTap: () {
+                      onScreenChange(0);
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.sports_motorsports),
+                    title: const Text("レース画面"),
+                    selected: currentScreen == 1,
+                    selectedColor: Colors.blue,
+                    onTap: () {
+                      onScreenChange(1);
+                      Navigator.pop(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.speed),
+                    title: const Text("アナログ計器"),
+                    selected: currentScreen == 2,
+                    selectedColor: Colors.blue,
+                    onTap: () {
+                      onScreenChange(2);
+                      Navigator.pop(context);
+                    },
                   ),
                   const Divider(),
                   TextField(

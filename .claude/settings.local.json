@@ -3,7 +3,10 @@
     "allow": [
       "Bash(flutter clean)",
       "Bash(flutter pub get)",
-      "Bash(dart run flutter_launcher_icons)"
+      "Bash(dart run flutter_launcher_icons)",
+      "Bash(flutter analyze lib/race_dashboard_screen.dart lib/main.dart)",
+      "Bash(flutter analyze lib/race_dashboard_screen.dart)",
+      "Bash(flutter analyze lib/analog_dashboard_screen.dart)"
     ]
   }
 }

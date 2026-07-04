@@ -7,6 +7,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'gt7_decoder.dart';
 import 'gt7_drawer.dart';
 import 'dashboard_screen.dart';
+import 'race_dashboard_screen.dart';
+import 'analog_dashboard_screen.dart';
 
 // SharedPreferences Key for IP address
 const String prefIpKey = 'gt7_ps5_ip';
@@ -52,6 +54,34 @@ class GT7RpmAppState extends State<GT7RpmApp> {
   final ValueNotifier<double> brakeNotifier   = ValueNotifier<double>(0.0);
   final ValueNotifier<int>    rpmWarningNotifier = ValueNotifier<int>(0);
   final ValueNotifier<int>    rpmLimiterNotifier = ValueNotifier<int>(0);
+
+  // レースダッシュボード用
+  final ValueNotifier<int>    lapCountNotifier       = ValueNotifier<int>(0);
+  final ValueNotifier<int>    lapsInRaceNotifier     = ValueNotifier<int>(0);
+  final ValueNotifier<int>    bestLapNotifier        = ValueNotifier<int>(-1);
+  final ValueNotifier<int>    lastLapNotifier        = ValueNotifier<int>(-1);
+  final ValueNotifier<int>    currentLapMsNotifier   = ValueNotifier<int>(0);
+  final ValueNotifier<double> fuelLevelNotifier      = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> fuelCapacityNotifier   = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> lapsRemainingNotifier  = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> fuelPerLapNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreTempFLNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreTempFRNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreTempRLNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreTempRRNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreWearFLNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreWearFRNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreWearRLNotifier     = ValueNotifier<double>(0.0);
+  final ValueNotifier<double> tyreWearRRNotifier     = ValueNotifier<double>(0.0);
+
+  // ラップタイム計測用
+  DateTime? _lapStartTime;
+  int _prevLapCount = -1;
+  double? _prevFuelLevel;
+  double _fuelPerLap = 0.0;
+
+  // 画面切り替え (0=Dashboard, 1=Race, 2=Analog)
+  int _currentScreen = 0;
 
   final ValueNotifier<int> packetCountNotifier = ValueNotifier<int>(0);
   // Raw packet count, incremented on every successful reception
@@ -131,9 +161,26 @@ class GT7RpmAppState extends State<GT7RpmApp> {
     brakeNotifier.dispose();
     rpmWarningNotifier.dispose();
     rpmLimiterNotifier.dispose();
+    lapCountNotifier.dispose();
+    lapsInRaceNotifier.dispose();
+    bestLapNotifier.dispose();
+    lastLapNotifier.dispose();
+    currentLapMsNotifier.dispose();
+    fuelLevelNotifier.dispose();
+    fuelCapacityNotifier.dispose();
+    lapsRemainingNotifier.dispose();
+    fuelPerLapNotifier.dispose();
+    tyreTempFLNotifier.dispose();
+    tyreTempFRNotifier.dispose();
+    tyreTempRLNotifier.dispose();
+    tyreTempRRNotifier.dispose();
+    tyreWearFLNotifier.dispose();
+    tyreWearFRNotifier.dispose();
+    tyreWearRLNotifier.dispose();
+    tyreWearRRNotifier.dispose();
     packetCountNotifier.dispose();
     statusNotifier.dispose();
-    currentDisplayedIpNotifier.dispose(); // Dispose IP Notifier
+    currentDisplayedIpNotifier.dispose();
     super.dispose();
   }
 
@@ -287,6 +334,57 @@ class GT7RpmAppState extends State<GT7RpmApp> {
         if (newWarn > 0) rpmWarningNotifier.value = newWarn;
         final newLim = getUint16(decrypted, rpmLimiterOffset);
         if (newLim > 0) rpmLimiterNotifier.value = newLim;
+
+        // ─── レースダッシュボード用データ ───────────────────────────────────
+
+        // ラップカウント & 現在ラップタイム計測
+        final lapCount = getUint16(decrypted, lapCountOffset);
+        if (_prevLapCount >= 0 && lapCount != _prevLapCount) {
+          // 新しいラップ開始
+          final fuelNow = getFloat(decrypted, fuelLevelOffset);
+          if (_prevFuelLevel != null) {
+            final consumed = _prevFuelLevel! - fuelNow;
+            if (consumed > 0) _fuelPerLap = consumed;
+          }
+          _prevFuelLevel = fuelNow;
+          _lapStartTime  = DateTime.now();
+        }
+        if (_prevLapCount == -1) {
+          _lapStartTime = DateTime.now();
+          _prevFuelLevel = getFloat(decrypted, fuelLevelOffset);
+        }
+        _prevLapCount = lapCount;
+        lapCountNotifier.value   = lapCount;
+        lapsInRaceNotifier.value = getUint16(decrypted, lapsInRaceOffset);
+        bestLapNotifier.value    = getInt32(decrypted, bestLapOffset);
+        lastLapNotifier.value    = getInt32(decrypted, lastLapOffset);
+
+        if (_lapStartTime != null) {
+          currentLapMsNotifier.value =
+              DateTime.now().difference(_lapStartTime!).inMilliseconds;
+        }
+
+        // 燃料
+        final fuelLevel    = getFloat(decrypted, fuelLevelOffset);
+        final fuelCapacity = getFloat(decrypted, fuelCapacityOffset);
+        fuelLevelNotifier.value    = fuelLevel;
+        fuelCapacityNotifier.value = fuelCapacity;
+        if (_fuelPerLap > 0) {
+          lapsRemainingNotifier.value = fuelLevel / _fuelPerLap;
+          fuelPerLapNotifier.value    = _fuelPerLap;
+        }
+
+        // タイヤ温度
+        tyreTempFLNotifier.value = getFloat(decrypted, tyreTempFLOffset);
+        tyreTempFRNotifier.value = getFloat(decrypted, tyreTempFROffset);
+        tyreTempRLNotifier.value = getFloat(decrypted, tyreTempRLOffset);
+        tyreTempRRNotifier.value = getFloat(decrypted, tyreTempRROffset);
+
+        // タイヤ摩耗（GT7は最大2.5程度のfloat → 0〜1 に正規化）
+        tyreWearFLNotifier.value = (getFloat(decrypted, tyreWearFLOffset) / 2.5).clamp(0.0, 1.0);
+        tyreWearFRNotifier.value = (getFloat(decrypted, tyreWearFROffset) / 2.5).clamp(0.0, 1.0);
+        tyreWearRLNotifier.value = (getFloat(decrypted, tyreWearRLOffset) / 2.5).clamp(0.0, 1.0);
+        tyreWearRRNotifier.value = (getFloat(decrypted, tyreWearRROffset) / 2.5).clamp(0.0, 1.0);
       },
       // Stream error handler
       onError: (error) {
@@ -318,6 +416,14 @@ class GT7RpmAppState extends State<GT7RpmApp> {
     receiver = null;
 
     setState(() => isListening = false);
+
+    // ラップ計測リセット
+    _lapStartTime  = null;
+    _prevLapCount  = -1;
+    _prevFuelLevel = null;
+    _fuelPerLap    = 0.0;
+    currentLapMsNotifier.value  = 0;
+    lapsRemainingNotifier.value = 0.0;
 
     // Set to idle unless already in an error state
     if (!statusNotifier.value.startsWith("ERROR")) {
@@ -359,6 +465,8 @@ class GT7RpmAppState extends State<GT7RpmApp> {
                 onStop: stopListening,
                 packetCount: count,
                 status: status,
+                currentScreen: _currentScreen,
+                onScreenChange: (i) => setState(() => _currentScreen = i),
               );
             },
           );
@@ -367,9 +475,9 @@ class GT7RpmAppState extends State<GT7RpmApp> {
       appBar: AppBar(
         backgroundColor: const Color(0xFF0A0A14),
         elevation: 0,
-        title: const Text(
-          'GT7 DASHBOARD',
-          style: TextStyle(
+        title: Text(
+          _currentScreen == 1 ? 'GT7 RACE' : _currentScreen == 2 ? 'GT7 ANALOG' : 'GT7 DASHBOARD',
+          style: const TextStyle(
             color: Colors.white54,
             fontSize: 13,
             letterSpacing: 3,
@@ -382,15 +490,51 @@ class GT7RpmAppState extends State<GT7RpmApp> {
           ),
         ),
       ),
-      body: RacingDashboard(
-        rpmNotifier:        rpmNotifier,
-        speedNotifier:      speedNotifier,
-        gearNotifier:       gearNotifier,
-        throttleNotifier:   throttleNotifier,
-        brakeNotifier:      brakeNotifier,
-        rpmWarningNotifier: rpmWarningNotifier,
-        rpmLimiterNotifier: rpmLimiterNotifier,
-      ),
+      body: _currentScreen == 1
+          ? RaceDashboard(
+              rpmNotifier:           rpmNotifier,
+              rpmWarningNotifier:    rpmWarningNotifier,
+              rpmLimiterNotifier:    rpmLimiterNotifier,
+              speedNotifier:         speedNotifier,
+              lapCountNotifier:      lapCountNotifier,
+              lapsInRaceNotifier:    lapsInRaceNotifier,
+              bestLapNotifier:       bestLapNotifier,
+              lastLapNotifier:       lastLapNotifier,
+              currentLapMsNotifier:  currentLapMsNotifier,
+              fuelLevelNotifier:     fuelLevelNotifier,
+              fuelCapacityNotifier:  fuelCapacityNotifier,
+              lapsRemainingNotifier: lapsRemainingNotifier,
+              fuelPerLapNotifier:    fuelPerLapNotifier,
+              tyreTempFLNotifier:    tyreTempFLNotifier,
+              tyreTempFRNotifier:    tyreTempFRNotifier,
+              tyreTempRLNotifier:    tyreTempRLNotifier,
+              tyreTempRRNotifier:    tyreTempRRNotifier,
+              tyreWearFLNotifier:    tyreWearFLNotifier,
+              tyreWearFRNotifier:    tyreWearFRNotifier,
+              tyreWearRLNotifier:    tyreWearRLNotifier,
+              tyreWearRRNotifier:    tyreWearRRNotifier,
+            )
+          : _currentScreen == 2
+          ? AnalogDashboard(
+              rpmNotifier:          rpmNotifier,
+              speedNotifier:        speedNotifier,
+              gearNotifier:         gearNotifier,
+              throttleNotifier:     throttleNotifier,
+              brakeNotifier:        brakeNotifier,
+              rpmWarningNotifier:   rpmWarningNotifier,
+              rpmLimiterNotifier:   rpmLimiterNotifier,
+              fuelLevelNotifier:    fuelLevelNotifier,
+              fuelCapacityNotifier: fuelCapacityNotifier,
+            )
+          : RacingDashboard(
+              rpmNotifier:        rpmNotifier,
+              speedNotifier:      speedNotifier,
+              gearNotifier:       gearNotifier,
+              throttleNotifier:   throttleNotifier,
+              brakeNotifier:      brakeNotifier,
+              rpmWarningNotifier: rpmWarningNotifier,
+              rpmLimiterNotifier: rpmLimiterNotifier,
+            ),
     );
   }
 }

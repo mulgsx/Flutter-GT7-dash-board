@@ -14,12 +14,26 @@ const int gt7MagicNumber = 0x47375330;
 const int rpmOffset = 0x3C;
 
 // Additional offsets
-const int speedOffset      = 0x4C; // float, m/s  → × 3.6 = km/h
-const int rpmWarningOffset = 0x88; // uint16, rev warning RPM
-const int rpmLimiterOffset = 0x8A; // uint16, rev limiter RPM
-const int gearsOffset      = 0x90; // uint8, lower4=current gear, upper4=suggested
-const int throttleOffset   = 0x91; // uint8, 0–255
-const int brakeOffset      = 0x92; // uint8, 0–255
+const int speedOffset        = 0x4C; // float, m/s → × 3.6 = km/h
+const int fuelLevelOffset    = 0x44; // float, litres
+const int fuelCapacityOffset = 0x48; // float, litres
+const int tyreTempFLOffset   = 0x60; // float, celsius
+const int tyreTempFROffset   = 0x64; // float, celsius
+const int tyreTempRLOffset   = 0x68; // float, celsius
+const int tyreTempRROffset   = 0x6C; // float, celsius
+const int lapCountOffset     = 0x74; // uint16
+const int lapsInRaceOffset   = 0x76; // uint16
+const int bestLapOffset      = 0x78; // int32, ms (-1 = none)
+const int lastLapOffset      = 0x7C; // int32, ms (-1 = none)
+const int rpmWarningOffset   = 0x88; // uint16, rev warning RPM
+const int rpmLimiterOffset   = 0x8A; // uint16, rev limiter RPM
+const int gearsOffset        = 0x90; // uint8, lower4=current gear, upper4=suggested
+const int throttleOffset     = 0x91; // uint8, 0–255
+const int brakeOffset        = 0x92; // uint8, 0–255
+const int tyreWearFLOffset   = 0xF4; // float, 0.0(worn)–1.0(new)
+const int tyreWearFROffset   = 0xF8; // float
+const int tyreWearRLOffset   = 0xFC; // float
+const int tyreWearRROffset   = 0x100; // float
 
 // Deadbeaf constant used in IV calculation
 const int _deadbeaf = 0xDEADBEAF;
@@ -85,6 +99,12 @@ int getUint8(Uint8List decoded, int offset) {
 int getUint16(Uint8List decoded, int offset) {
   if (decoded.length < offset + 2) return 0;
   return ByteData.sublistView(decoded).getUint16(offset, Endian.little);
+}
+
+/// Read an int32 (Little-Endian) from the decoded packet at a specific offset.
+int getInt32(Uint8List decoded, int offset) {
+  if (decoded.length < offset + 4) return -1;
+  return ByteData.sublistView(decoded).getInt32(offset, Endian.little);
 }
 
 /// Read a float (Little-Endian) from the decoded packet data at a specific offset.
