@@ -48,6 +48,7 @@ class GT7TelemetryService {
     }
   }
 
+  /// IP アドレスを SharedPreferences に保存する / Saves the IP address to SharedPreferences
   Future<void> _saveIp(String ip) async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -58,7 +59,7 @@ class GT7TelemetryService {
     }
   }
 
-  // IP アドレスの形式を検証する / Validates the IP address format
+  /// IP アドレスの形式を検証する / Validates the IP address format
   bool isValidIp(String ip) => InternetAddress.tryParse(ip) != null;
 
   Future<void> startListening(String targetIp) async {
@@ -87,6 +88,7 @@ class GT7TelemetryService {
     statusNotifier.value = 'Binding to port $receivePort...';
 
     try {
+      // UDP レシーバーを指定されたポートにバインドする / Bind UDP receiver to the specified port
       _receiver = await UDP.bind(Endpoint.any(port: Port(receivePort)));
       print('[LOG] UDP receiver bound to port $receivePort');
     } catch (e) {
@@ -95,7 +97,7 @@ class GT7TelemetryService {
       _receiver = null;
       return;
     }
-
+    // リスニング状態を更新する / Update listening state
     isListeningNotifier.value = true;
     statusNotifier.value = 'Listening on $_targetIp. Awaiting packets...';
 
