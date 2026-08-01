@@ -6,22 +6,42 @@ import 'package:udp/udp.dart';
 import '../config/app_config.dart';
 import '../models/gt7_models.dart';
 
+enum StatusType { idle, connecting, receiving, error }
+
 class GT7TelemetryService {
   final ValueNotifier<double> rpmNotifier = ValueNotifier(0.0);
   final ValueNotifier<int> packetCountNotifier = ValueNotifier(0);
   // 直近1秒間に受信したパケット数 = 受信レート（Hz）/ Packets received in the last 1 second = reception rate in Hz
   final ValueNotifier<double> packetRateNotifier = ValueNotifier(0.0);
   final ValueNotifier<String> statusNotifier = ValueNotifier('IDLE');
+  final ValueNotifier<StatusType> statusTypeNotifier = ValueNotifier(
+    StatusType.idle,
+  );
   final ValueNotifier<String> currentIpNotifier = ValueNotifier(defaultIp);
   final ValueNotifier<bool> isListeningNotifier = ValueNotifier(false);
   final TextEditingController ipController = TextEditingController(
     text: defaultIp,
   );
+  final ValueNotifier<int> revWarningRpmNotifier = ValueNotifier(0);
+  final TextEditingController revWarningController = TextEditingController();
+  final FocusNode revWarningFocusNode = FocusNode();
+  // car_id が確定するまで（＝GT7未接続の間）は入力欄を非活性にする
+  // Disabled until car_id is known (i.e. before GT7 is connected)
+  final ValueNotifier<bool> revWarningEditableNotifier = ValueNotifier(false);
 
   UDP? _receiver;
   StreamSubscription? _udpSubscription;
   Timer? _heartbeatTimer;
   Timer? _displayUpdateTimer;
+  // 現在受信中の車の car_id。未受信時は null / car_id of the currently connected car; null until known
+  int? _currentCarId;
+  // true の間はライブ値で上書きしない（ユーザーの手動入力を優先） / While true, skip live-telemetry updates
+  bool _revWarningIsOverride = false;
+
+  GT7TelemetryService() {
+    // フォーカスが外れた瞬間に入力を確定・保存する / Commit and persist the value the moment focus is lost
+    revWarningFocusNode.addListener(_onRevWarningFocusChange);
+  }
 
   // 60Hz でインクリメント。UIへの反映は _displayUpdateTimer で200ms に間引く
   // Incremented at 60 Hz; throttled to UI via _displayUpdateTimer at 200 ms
@@ -42,9 +62,9 @@ class GT7TelemetryService {
       currentIpNotifier.value = saved;
       ipController.text = saved;
       _targetIp = saved;
-      print('[LOG] Loaded IP from prefs: $saved');
+      debugPrint('[LOG] Loaded IP from prefs: $saved');
     } catch (e) {
-      print('[ERROR] Failed to load IP from SharedPreferences: $e');
+      debugPrint('[ERROR] Failed to load IP from SharedPreferences: $e');
     }
   }
 
@@ -53,24 +73,25 @@ class GT7TelemetryService {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(prefIpKey, ip);
-      print('[LOG] Saved IP to prefs: $ip');
+      debugPrint('[LOG] Saved IP to prefs: $ip');
     } catch (e) {
-      print('[ERROR] Failed to save IP to SharedPreferences: $e');
+      debugPrint('[ERROR] Failed to save IP to SharedPreferences: $e');
     }
   }
 
   /// IP アドレスの形式を検証する / Validates the IP address format
   bool isValidIp(String ip) => InternetAddress.tryParse(ip) != null;
 
-  Future<void> startListening(String targetIp) async {
+  Future<bool> startListening(String targetIp) async {
     // 前後の空白を削除する / Remove leading and trailing whitespace
     final ip = targetIp.trim();
-    print('[DEBUG] Target IP is set to: $ip');
+    debugPrint('[DEBUG] Target IP is set to: $ip');
 
     // IP アドレスの形式を検証する / Validate the IP address format
     if (!isValidIp(ip)) {
       statusNotifier.value = 'ERROR: Invalid IP address format.';
-      return;
+      statusTypeNotifier.value = StatusType.error;
+      return false;
     }
 
     // IP アドレスを保存する / Save the IP address
@@ -86,20 +107,23 @@ class GT7TelemetryService {
     }
 
     statusNotifier.value = 'Binding to port $receivePort...';
+    statusTypeNotifier.value = StatusType.connecting;
 
     try {
       // UDP レシーバーを指定されたポートにバインドする / Bind UDP receiver to the specified port
       _receiver = await UDP.bind(Endpoint.any(port: Port(receivePort)));
-      print('[LOG] UDP receiver bound to port $receivePort');
+      debugPrint('[LOG] UDP receiver bound to port $receivePort');
     } catch (e) {
-      print('[ERROR] Failed to bind UDP receiver: $e');
+      debugPrint('[ERROR] Failed to bind UDP receiver: $e');
       statusNotifier.value = 'ERROR: Failed to bind to port $receivePort ($e)';
+      statusTypeNotifier.value = StatusType.error;
       _receiver = null;
-      return;
+      return false;
     }
     // リスニング状態を更新する / Update listening state
     isListeningNotifier.value = true;
     statusNotifier.value = 'Listening on $_targetIp. Awaiting packets...';
+    statusTypeNotifier.value = StatusType.connecting;
 
     _rawPacketCount = 0;
     packetCountNotifier.value = 0;
@@ -127,17 +151,21 @@ class GT7TelemetryService {
     _udpSubscription = _receiver!.asStream().listen(
       _handlePacket,
       onError: (error) {
-        print('[STREAM ERROR] UDP stream failed: $error');
+        debugPrint('[STREAM ERROR] UDP stream failed: $error');
         statusNotifier.value =
             'ERROR: Stream failed ($error). Please try restarting.';
+        statusTypeNotifier.value = StatusType.error;
         stopListening();
       },
       onDone: () {
-        print('[STREAM DONE] UDP stream closed.');
+        debugPrint('[STREAM DONE] UDP stream closed.');
         statusNotifier.value = 'Connection Closed.';
+        statusTypeNotifier.value = StatusType.idle;
         stopListening();
       },
     );
+
+    return true;
   }
 
   void stopListening() {
@@ -157,36 +185,39 @@ class GT7TelemetryService {
     // 停止時にタイムスタンプとレートをリセットする / Reset timestamps and rate on stop
     _packetTimestamps.clear();
     packetRateNotifier.value = 0.0;
+    // 未接続状態に戻すため、Rev Warning 欄も非活性にする / Disable the Rev Warning field again, back to "not connected"
+    revWarningEditableNotifier.value = false;
 
     // ERROR ステータスは停止時に上書きしない / Preserve ERROR status on stop
     if (!statusNotifier.value.startsWith('ERROR')) {
       statusNotifier.value = 'IDLE: Listening stopped.';
+      statusTypeNotifier.value = StatusType.idle;
     }
 
-    print('[LOG] Listening stopped.');
+    debugPrint('[LOG] Listening stopped.');
   }
 
   void _handlePacket(Datagram? datagram) {
     if (datagram == null) {
-      print('[DEBUG] Datagram is null.');
+      debugPrint('[DEBUG] Datagram is null.');
       return;
     }
 
     final receivedIp = datagram.address.host;
     // 対象外 IP からのパケットは無視する / Ignore packets from other senders
     if (receivedIp != _targetIp) {
-      print(
+      debugPrint(
         '[DEBUG] Received packet from wrong IP: $receivedIp (Expected: $_targetIp)',
       );
       return;
     }
 
     final rawData = datagram.data;
-    print('[DEBUG] Packet size: ${rawData.length}');
+    debugPrint('[DEBUG] Packet size: ${rawData.length}');
 
     final decrypted = GT7Decoder.decodeSalsa20(rawData);
     if (decrypted.isEmpty) {
-      print('[DEBUG] Decrypted data is empty.');
+      // debugPrint('[DEBUG] Decrypted data is empty.');
       return;
     }
 
@@ -197,13 +228,113 @@ class GT7TelemetryService {
     if (currentIpNotifier.value != receivedIp) {
       currentIpNotifier.value = receivedIp;
       statusNotifier.value = 'Receiving Data from $receivedIp';
+      statusTypeNotifier.value = StatusType.receiving;
     } else if (statusNotifier.value.contains('Awaiting') ||
         statusNotifier.value.startsWith('IDLE')) {
       statusNotifier.value = 'Receiving Data from $receivedIp';
+      statusTypeNotifier.value = StatusType.receiving;
     }
 
     final packet = GT7Packet.fromBytes(decrypted);
     rpmNotifier.value = packet.engineRPM;
+
+    if (packet.carId != -1) {
+      // 受信中は常に活性化する（stopListening() で非活性に戻す）
+      // Stays enabled while receiving (stopListening() disables it again)
+      revWarningEditableNotifier.value = true;
+    }
+
+    if (packet.carId != -1 && packet.carId != _currentCarId) {
+      // 車が変わった（または初めて確定した）→ その車の保存値を読み込む
+      // Car changed (or became known for the first time) → load that car's saved override
+      _currentCarId = packet.carId;
+      debugPrint('[DEBUG] Car ID: ${packet.carId}');
+      unawaited(_loadRevWarningForCar(packet.carId, packet.revWarningRpm));
+    } else if (!_revWarningIsOverride &&
+        !revWarningFocusNode.hasFocus &&
+        packet.revWarningRpm != -1) {
+      // 上書き中でも入力中でもなければライブ値に追従させる
+      // Track the live value as long as it isn't overridden and the user isn't mid-edit
+      _applyRevWarningValue(packet.revWarningRpm, isOverride: false);
+    }
+  }
+
+  void _applyRevWarningValue(int value, {required bool isOverride}) {
+    revWarningRpmNotifier.value = value;
+    _revWarningIsOverride = isOverride;
+    // 入力中にコントローラの文字列を書き換えてカーソル位置や入力中の内容を壊さないようにする
+    // Don't clobber in-progress typing/cursor position while the field has focus
+    if (!revWarningFocusNode.hasFocus) {
+      revWarningController.text = value.toString();
+    }
+  }
+
+  // 車が変わった際に呼ばれる：保存済みの上書き値があればそれを、なければライブ値を採用する
+  // Called on car change: prefers the saved override for this car, falls back to the live telemetry value
+  Future<void> _loadRevWarningForCar(int carId, int fallbackLiveValue) async {
+    _revWarningIsOverride = false;
+    if (fallbackLiveValue != -1) {
+      _applyRevWarningValue(fallbackLiveValue, isOverride: false);
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      // await 中に別の車へ切り替わっていたら、この結果は古いので破棄する
+      // Discard this result if the car changed again while awaiting (race guard)
+      if (_currentCarId != carId) return;
+
+      final saved = prefs.getInt(revWarningPrefKey(carId));
+      if (saved != null) {
+        _applyRevWarningValue(saved, isOverride: true);
+      }
+    } catch (e) {
+      debugPrint(
+        '[ERROR] Failed to load rev warning from SharedPreferences: $e',
+      );
+    }
+  }
+
+  void _onRevWarningFocusChange() {
+    if (!revWarningFocusNode.hasFocus) {
+      unawaited(commitRevWarningOverride(revWarningController.text));
+    }
+  }
+
+  /// フィールドの内容を手動オーバーライドとして確定・永続化する
+  /// Commits the field's contents as a manual override and persists it
+  /// (呼び出し元: フォーカスロスト時 / TextField.onSubmitted)
+  /// (Callers: on focus loss / TextField.onSubmitted)
+  Future<void> commitRevWarningOverride(String text) async {
+    final parsed = int.tryParse(text.trim());
+    if (parsed == null || parsed <= 0) {
+      // 不正な入力は破棄し、直前の値に戻す / Reject invalid input, revert to the last known value
+      revWarningController.text = revWarningRpmNotifier.value > 0
+          ? revWarningRpmNotifier.value.toString()
+          : '';
+      return;
+    }
+
+    _revWarningIsOverride = true;
+    revWarningRpmNotifier.value = parsed;
+
+    if (_currentCarId == null) {
+      // car_id 未確定の間は保存キーが定まらないためメモリ上のみ有効
+      // Can't persist without a known car_id yet; stays in-memory only until a packet establishes one
+      debugPrint(
+        '[LOG] Rev warning override set before car_id known; not persisted yet.',
+      );
+      return;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt(revWarningPrefKey(_currentCarId!), parsed);
+      debugPrint(
+        '[LOG] Saved rev warning override for car $_currentCarId: $parsed',
+      );
+    } catch (e) {
+      debugPrint('[ERROR] Failed to save rev warning to SharedPreferences: $e');
+    }
   }
 
   void _sendHeartbeat() async {
@@ -215,7 +346,7 @@ class GT7TelemetryService {
         socket.close();
       }
     } catch (e) {
-      print('[ERROR] Heartbeat failed: $e');
+      debugPrint('[ERROR] Heartbeat failed: $e');
     }
   }
 
@@ -225,8 +356,14 @@ class GT7TelemetryService {
     packetCountNotifier.dispose();
     packetRateNotifier.dispose();
     statusNotifier.dispose();
+    statusTypeNotifier.dispose();
     currentIpNotifier.dispose();
     isListeningNotifier.dispose();
     ipController.dispose();
+    revWarningRpmNotifier.dispose();
+    revWarningFocusNode.removeListener(_onRevWarningFocusChange);
+    revWarningFocusNode.dispose();
+    revWarningController.dispose();
+    revWarningEditableNotifier.dispose();
   }
 }

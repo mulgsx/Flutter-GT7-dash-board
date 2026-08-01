@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
 import 'screens/telemetry_screen.dart';
 import 'services/gt7_telemetry_service.dart';
 
@@ -18,6 +19,10 @@ void main() {
 
   // システムバーを非表示にして表示領域を最大化する / Hide system bars to maximize display area
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+
+  // 走行中にダッシュボードとして常時表示するため、画面が自動スリープしないようにする
+  // Keep the screen awake while the app is running, since it's used as an always-on dashboard
+  WakelockPlus.enable();
 
   // GT7 は横向きのゲームなのでダッシュボードも横向きに固定する / Lock to landscape to match GT7's orientation
   // 向き設定の完了を待ってから起動する / Launch only after orientation lock is applied

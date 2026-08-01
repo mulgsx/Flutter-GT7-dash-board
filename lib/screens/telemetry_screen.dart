@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../services/gt7_telemetry_service.dart';
 import '../widgets/telemetry_drawer_widget.dart';
 import '../widgets/rpm_display_widget.dart';
+import '../widgets/warning_indicator_widget.dart';
 
 class TelemetryScreen extends StatelessWidget {
   // GT7テレメトリサービスを受け取り、画面全体で共有する
@@ -40,8 +41,25 @@ class TelemetryScreen extends StatelessWidget {
               // ゲージを追加するときはここに _buildGaugeCard(...) を並べていく
               // To add more gauges, append _buildGaugeCard(...) calls here
               children: [
+                // RPM
                 _buildGaugeCard(
                   child: RpmDisplay(rpmNotifier: service.rpmNotifier),
+                ),
+                // warning indicator
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: WarningIndicator(
+                    rpmNotifier: service.rpmNotifier,
+                    revWarningRpmNotifier: service.revWarningRpmNotifier,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // revWarningRpm
+                ValueListenableBuilder<int>(
+                  valueListenable: service.revWarningRpmNotifier,
+                  builder: (context, revWarningRpm, _) =>
+                      Text('Rev Warning RPM: $revWarningRpm'),
                 ),
               ],
             ),
