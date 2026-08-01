@@ -34,6 +34,10 @@ A packet specification document is included, enabling custom dashboard developme
   ボタン一つで受信の開始・停止ができます。  
   Start and stop data reception with a single button.
 
+* **レブ警告 RPM の編集 / Editable Rev Warning RPM**  
+  警告が点灯し始める回転数を自分で編集でき、車両ID（Car ID）に紐づけて保存されるため、車両ごとに異なる設定を保持できます。  
+  Edit the RPM at which the warning indicator starts; it's saved keyed by the vehicle's Car ID, so each car keeps its own setting.
+
 * **パケット復号 / Packet Parsing**  
   GT7 独自の Salsa20 暗号化パケットを復号し、正確にデータを抽出します。  
   Decrypts GT7's Salsa20-encrypted packets and extracts data accurately.
