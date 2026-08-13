@@ -10,6 +10,21 @@ enum StatusType { idle, connecting, receiving, error }
 
 class GT7TelemetryService {
   final ValueNotifier<double> rpmNotifier = ValueNotifier(0.0);
+  final ValueNotifier<int> gearNotifier = ValueNotifier(0);
+  final ValueNotifier<int> revLimiterRpmNotifier = ValueNotifier(0);
+  final ValueNotifier<double> fuelLevelNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> fuelCapacityNotifier = ValueNotifier(0.0);
+  // 直近ラップで消費した燃料（L）。ラップが1周完了するまでは 0 / Fuel burned on the last completed lap; 0 until one lap has finished
+  final ValueNotifier<double> lapFuelConsumptionNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> tireTempFLNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> tireTempFRNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> tireTempRLNotifier = ValueNotifier(0.0);
+  final ValueNotifier<double> tireTempRRNotifier = ValueNotifier(0.0);
+  final ValueNotifier<int> currentLapNotifier = ValueNotifier(0);
+  final ValueNotifier<int> totalLapsNotifier = ValueNotifier(-1);
+  final ValueNotifier<int> lastLapTimeNotifier = ValueNotifier(-1);
+  final ValueNotifier<int> bestLapTimeNotifier = ValueNotifier(-1);
+  final ValueNotifier<bool> tcsActiveNotifier = ValueNotifier(false);
   final ValueNotifier<int> packetCountNotifier = ValueNotifier(0);
   // 直近1秒間に受信したパケット数 = 受信レート（Hz）/ Packets received in the last 1 second = reception rate in Hz
   final ValueNotifier<double> packetRateNotifier = ValueNotifier(0.0);
@@ -37,6 +52,11 @@ class GT7TelemetryService {
   int? _currentCarId;
   // true の間はライブ値で上書きしない（ユーザーの手動入力を優先） / While true, skip live-telemetry updates
   bool _revWarningIsOverride = false;
+
+  // 消費量計算用：現在のラップが始まった時点の燃料残量と、そのラップ番号
+  // For consumption tracking: fuel level when the current lap began, and which lap that was
+  double? _fuelAtLapStart;
+  int? _lapAtFuelStart;
 
   GT7TelemetryService() {
     // フォーカスが外れた瞬間に入力を確定・保存する / Commit and persist the value the moment focus is lost
@@ -187,6 +207,10 @@ class GT7TelemetryService {
     packetRateNotifier.value = 0.0;
     // 未接続状態に戻すため、Rev Warning 欄も非活性にする / Disable the Rev Warning field again, back to "not connected"
     revWarningEditableNotifier.value = false;
+    // 次回接続時は改めて1周分のデータが揃うまで消費量を出さない
+    // On reconnect, wait for a fresh full lap before reporting consumption again
+    _fuelAtLapStart = null;
+    _lapAtFuelStart = null;
 
     // ERROR ステータスは停止時に上書きしない / Preserve ERROR status on stop
     if (!statusNotifier.value.startsWith('ERROR')) {
@@ -195,6 +219,24 @@ class GT7TelemetryService {
     }
 
     debugPrint('[LOG] Listening stopped.');
+  }
+
+  // ラップ番号が進んだ瞬間の燃料残量の差分から、直近1周分の消費量を算出する
+  // Derives last-lap fuel consumption from the fuel-level delta at each lap-number transition
+  void _trackLapFuelConsumption(int currentLap, double fuelLevel) {
+    if (_lapAtFuelStart == null) {
+      _lapAtFuelStart = currentLap;
+      _fuelAtLapStart = fuelLevel;
+      return;
+    }
+    if (currentLap == _lapAtFuelStart) return;
+
+    final consumed = _fuelAtLapStart! - fuelLevel;
+    if (consumed > 0) {
+      lapFuelConsumptionNotifier.value = consumed;
+    }
+    _lapAtFuelStart = currentLap;
+    _fuelAtLapStart = fuelLevel;
   }
 
   void _handlePacket(Datagram? datagram) {
@@ -237,6 +279,30 @@ class GT7TelemetryService {
 
     final packet = GT7Packet.fromBytes(decrypted);
     rpmNotifier.value = packet.engineRPM;
+    gearNotifier.value = packet.gear;
+    fuelLevelNotifier.value = packet.fuelLevel;
+    fuelCapacityNotifier.value = packet.fuelCapacity;
+    tireTempFLNotifier.value = packet.tireTempFL;
+    tireTempFRNotifier.value = packet.tireTempFR;
+    tireTempRLNotifier.value = packet.tireTempRL;
+    tireTempRRNotifier.value = packet.tireTempRR;
+    tcsActiveNotifier.value = packet.tcsActive;
+    if (packet.revLimiterRpm != -1) {
+      revLimiterRpmNotifier.value = packet.revLimiterRpm;
+    }
+    if (packet.currentLap != -1) {
+      _trackLapFuelConsumption(packet.currentLap, packet.fuelLevel);
+      currentLapNotifier.value = packet.currentLap;
+    }
+    if (packet.totalLaps != -1) {
+      totalLapsNotifier.value = packet.totalLaps;
+    }
+    if (packet.lastLapTime != -1) {
+      lastLapTimeNotifier.value = packet.lastLapTime;
+    }
+    if (packet.bestLapTime != -1) {
+      bestLapTimeNotifier.value = packet.bestLapTime;
+    }
 
     if (packet.carId != -1) {
       // 受信中は常に活性化する（stopListening() で非活性に戻す）
@@ -353,6 +419,20 @@ class GT7TelemetryService {
   void dispose() {
     stopListening();
     rpmNotifier.dispose();
+    gearNotifier.dispose();
+    revLimiterRpmNotifier.dispose();
+    fuelLevelNotifier.dispose();
+    fuelCapacityNotifier.dispose();
+    lapFuelConsumptionNotifier.dispose();
+    tireTempFLNotifier.dispose();
+    tireTempFRNotifier.dispose();
+    tireTempRLNotifier.dispose();
+    tireTempRRNotifier.dispose();
+    currentLapNotifier.dispose();
+    totalLapsNotifier.dispose();
+    lastLapTimeNotifier.dispose();
+    bestLapTimeNotifier.dispose();
+    tcsActiveNotifier.dispose();
     packetCountNotifier.dispose();
     packetRateNotifier.dispose();
     statusNotifier.dispose();

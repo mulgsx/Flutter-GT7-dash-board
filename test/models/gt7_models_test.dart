@@ -46,7 +46,18 @@ Uint8List _buildPlainPacketA({
   int brake = 128,
   int lastLapMs = 92345,
   int revWarningRpm = 6800,
+  int revLimiterRpm = 7000,
   int carId = 1234,
+  double fuelLevel = 45.2,
+  double fuelCapacity = 75.0,
+  double tireTempFL = 92.0,
+  double tireTempFR = 90.0,
+  double tireTempRL = 85.0,
+  double tireTempRR = 84.0,
+  int currentLap = 4,
+  int totalLaps = 10,
+  int bestLapMs = 91982,
+  int flags = 0,
 }) {
   final bytes = Uint8List(_packetASize);
   final data = ByteData.sublistView(bytes);
@@ -59,7 +70,18 @@ Uint8List _buildPlainPacketA({
   bytes[brakeOffset] = brake;
   data.setInt32(lastLapOffset, lastLapMs, Endian.little);
   data.setUint16(revWarningOffset, revWarningRpm, Endian.little);
+  data.setUint16(revLimiterOffset, revLimiterRpm, Endian.little);
   data.setInt32(carIdOffset, carId, Endian.little);
+  data.setFloat32(fuelLevelOffset, fuelLevel, Endian.little);
+  data.setFloat32(fuelCapacityOffset, fuelCapacity, Endian.little);
+  data.setFloat32(tireTempFLOffset, tireTempFL, Endian.little);
+  data.setFloat32(tireTempFROffset, tireTempFR, Endian.little);
+  data.setFloat32(tireTempRLOffset, tireTempRL, Endian.little);
+  data.setFloat32(tireTempRROffset, tireTempRR, Endian.little);
+  data.setInt16(currentLapOffset, currentLap, Endian.little);
+  data.setInt16(totalLapsOffset, totalLaps, Endian.little);
+  data.setInt32(bestLapOffset, bestLapMs, Endian.little);
+  data.setUint16(flagsOffset, flags, Endian.little);
 
   return bytes;
 }
@@ -116,9 +138,27 @@ void main() {
       expect(packet.gear, 3); // 下位4ビットのみ / lower nibble only
       expect(packet.gas, closeTo(1.0, 0.001));
       expect(packet.brake, closeTo(0.0, 0.001));
-      expect(packet.lapTime, 88123);
+      expect(packet.lastLapTime, 88123);
       expect(packet.revWarningRpm, 7300);
       expect(packet.carId, 4242);
+      expect(packet.fuelLevel, closeTo(45.2, 0.001));
+      expect(packet.fuelCapacity, closeTo(75.0, 0.001));
+      expect(packet.tireTempFL, closeTo(92.0, 0.001));
+      expect(packet.tireTempFR, closeTo(90.0, 0.001));
+      expect(packet.tireTempRL, closeTo(85.0, 0.001));
+      expect(packet.tireTempRR, closeTo(84.0, 0.001));
+      expect(packet.currentLap, 4);
+      expect(packet.totalLaps, 10);
+      expect(packet.bestLapTime, 91982);
+      expect(packet.tcsActive, isFalse);
+    });
+
+    test('decodes the tcs_active flag from bit 11 of the flags field', () {
+      final plaintext = _buildPlainPacketA(flags: 1 << 11);
+
+      final packet = GT7Packet.fromBytes(plaintext);
+
+      expect(packet.tcsActive, isTrue);
     });
 
     test('normalizes throttle and brake bytes to the 0.0-1.0 range', () {

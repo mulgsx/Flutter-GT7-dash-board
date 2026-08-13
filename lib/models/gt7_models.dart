@@ -14,7 +14,19 @@ const int throttleOffset = 0x91;
 const int brakeOffset = 0x92;
 const int lastLapOffset = 0x7C;
 const int revWarningOffset = 0x88; // uint16, rpm — レブ警告開始RPM
+const int revLimiterOffset = 0x8A; // uint16, rpm — RPMリミッター値
 const int carIdOffset = 0x124; // int32 — 保存キーとしてのみ使用する車両ID
+
+const int fuelLevelOffset = 0x44; // float, L — 現在の燃料残量
+const int fuelCapacityOffset = 0x48; // float, L — タンク容量（EV=0）
+const int tireTempFLOffset = 0x60; // float, °C
+const int tireTempFROffset = 0x64; // float, °C
+const int tireTempRLOffset = 0x68; // float, °C
+const int tireTempRROffset = 0x6C; // float, °C
+const int currentLapOffset = 0x74; // int16
+const int totalLapsOffset = 0x76; // int16 — ラップ制限なし = -1
+const int bestLapOffset = 0x78; // int32, ms — 未設定 = -1
+const int flagsOffset = 0x8E; // uint16 bitfield — bit11 = tcs_active
 
 // Salsa20キー: 固定文字列の先頭32バイト / Salsa20 key: first 32 bytes of the fixed ASCII string
 final Uint8List gt7KeyBytes = Uint8List.fromList(
@@ -79,10 +91,22 @@ class GT7Packet {
   final int gear;
   final double gas;
   final double brake;
-  final int lapTime;
+  final int lastLapTime;
   final int revWarningRpm; // -1 = パケット不足で未取得 / -1 when the packet was too short
+  final int revLimiterRpm; // -1 = 同上 / -1 when the packet was too short
   final int
   carId; // -1 = 同上（未確定の車） / -1 when unknown (no reliable car identity yet)
+
+  final double fuelLevel; // L
+  final double fuelCapacity; // L, EV = 0
+  final double tireTempFL;
+  final double tireTempFR;
+  final double tireTempRL;
+  final double tireTempRR;
+  final int currentLap; // -1 = 未取得
+  final int totalLaps; // -1 = ラップ制限なし、または未取得
+  final int bestLapTime; // ms, -1 = 未設定
+  final bool tcsActive;
 
   const GT7Packet({
     required this.speedKmh,
@@ -90,9 +114,20 @@ class GT7Packet {
     required this.gear,
     required this.gas,
     required this.brake,
-    required this.lapTime,
+    required this.lastLapTime,
     required this.revWarningRpm,
+    required this.revLimiterRpm,
     required this.carId,
+    required this.fuelLevel,
+    required this.fuelCapacity,
+    required this.tireTempFL,
+    required this.tireTempFR,
+    required this.tireTempRL,
+    required this.tireTempRR,
+    required this.currentLap,
+    required this.totalLaps,
+    required this.bestLapTime,
+    required this.tcsActive,
   });
 
   factory GT7Packet.fromBytes(Uint8List bytes) {
@@ -103,7 +138,7 @@ class GT7Packet {
         ? bytes[throttleOffset]
         : 0;
     final brakeByte = bytes.length > brakeOffset ? bytes[brakeOffset] : 0;
-    final lapTimeMs = bytes.length >= lastLapOffset + 4
+    final lastLapTimeMs = bytes.length >= lastLapOffset + 4
         ? data.getInt32(lastLapOffset, Endian.little)
         : -1;
     // GT7 は 500rpm 刻みでしか報告しない。手動入力で上書きできるようにするための土台
@@ -111,9 +146,31 @@ class GT7Packet {
     final revWarningRpm = bytes.length >= revWarningOffset + 2
         ? data.getUint16(revWarningOffset, Endian.little)
         : -1;
+    final revLimiterRpm = bytes.length >= revLimiterOffset + 2
+        ? data.getUint16(revLimiterOffset, Endian.little)
+        : -1;
     final carId = bytes.length >= carIdOffset + 4
         ? data.getInt32(carIdOffset, Endian.little)
         : -1;
+
+    final fuelLevel = bytes.length >= fuelLevelOffset + 4
+        ? data.getFloat32(fuelLevelOffset, Endian.little)
+        : 0.0;
+    final fuelCapacity = bytes.length >= fuelCapacityOffset + 4
+        ? data.getFloat32(fuelCapacityOffset, Endian.little)
+        : 0.0;
+    final currentLap = bytes.length >= currentLapOffset + 2
+        ? data.getInt16(currentLapOffset, Endian.little)
+        : -1;
+    final totalLaps = bytes.length >= totalLapsOffset + 2
+        ? data.getInt16(totalLapsOffset, Endian.little)
+        : -1;
+    final bestLapTime = bytes.length >= bestLapOffset + 4
+        ? data.getInt32(bestLapOffset, Endian.little)
+        : -1;
+    final flags = bytes.length >= flagsOffset + 2
+        ? data.getUint16(flagsOffset, Endian.little)
+        : 0;
 
     return GT7Packet(
       speedKmh: speedMs * 3.6,
@@ -125,9 +182,20 @@ class GT7Packet {
           throttleByte /
           255.0, // 0〜255 → 0.0〜1.0 に正規化 / Normalize 0-255 to 0.0-1.0
       brake: brakeByte / 255.0,
-      lapTime: lapTimeMs,
+      lastLapTime: lastLapTimeMs,
       revWarningRpm: revWarningRpm,
+      revLimiterRpm: revLimiterRpm,
       carId: carId,
+      fuelLevel: fuelLevel,
+      fuelCapacity: fuelCapacity,
+      tireTempFL: GT7Decoder.getFloat(bytes, tireTempFLOffset),
+      tireTempFR: GT7Decoder.getFloat(bytes, tireTempFROffset),
+      tireTempRL: GT7Decoder.getFloat(bytes, tireTempRLOffset),
+      tireTempRR: GT7Decoder.getFloat(bytes, tireTempRROffset),
+      currentLap: currentLap,
+      totalLaps: totalLaps,
+      bestLapTime: bestLapTime,
+      tcsActive: (flags & (1 << 11)) != 0,
     );
   }
 }

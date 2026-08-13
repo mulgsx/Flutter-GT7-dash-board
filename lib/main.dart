@@ -39,8 +39,11 @@ class GT7DashboardApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: TelemetryAppScreen(),
+    return MaterialApp(
+      // アプリ全体で日本語表示を Noto Sans JP に明示的に固定する
+      // Explicitly pins Japanese text app-wide to Noto Sans JP
+      theme: ThemeData(fontFamily: 'Noto Sans JP'),
+      home: const TelemetryAppScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
