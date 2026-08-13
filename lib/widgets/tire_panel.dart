@@ -160,7 +160,7 @@ class _TirePanelState extends State<TirePanel>
                     TextSpan(
                       text: temp.round().toString(),
                       style: const TextStyle(
-                        fontSize: 22,
+                        fontSize: 30,
                         fontWeight: FontWeight.w800,
                         color: AppColors.hudTextPrimary,
                       ),
