@@ -1,4 +1,4 @@
-# Flutter GT7 Dashboard
+# NSGT7
 
 レーシングゲーム *Gran Turismo 7 (GT7)* が UDP で送信するテレメトリデータを受信し、iOS / Android などのデバイス上にダッシュボードとして表示する Flutter アプリです。  
 A Flutter application that receives telemetry data from *Gran Turismo 7 (GT7)* via UDP and displays it as a dashboard on iOS, Android, and other platforms.

@@ -1,5 +1,5 @@
-name: gt7_dashboard_flutter
-description: "A new Flutter project."
+name: gt7_trj_log
+description: "NSGT7"
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -33,6 +33,8 @@ dependencies:
   udp: ^5.0.3
   pointycastle: ^3.9.1
   shared_preferences: ^2.5.3
+  path_provider: ^2.1.5
+  fl_chart: ^0.69.2
 
 
   # The following adds the Cupertino Icons font to your application.
@@ -91,3 +93,12 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+  fonts:
+    - family: Noto Sans JP
+      fonts:
+        - asset: assets/fonts/NotoSansJP-VF.ttf
+
+    # DSEG7 Classic by Keshikan — SIL Open Font License 1.1
+    - family: DSEG7Classic
+      fonts:
+        - asset: assets/fonts/DSEG7Classic-Bold.ttf

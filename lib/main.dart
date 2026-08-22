@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
-import 'screens/telemetry_screen.dart';
+import 'features/lap_analyzer/screens/home_screen.dart';
 import 'services/gt7_telemetry_service.dart';
 
 void main() {
@@ -30,17 +30,21 @@ void main() {
     DeviceOrientation.landscapeLeft,
     DeviceOrientation.landscapeRight,
   ]).then((_) {
-    runApp(const GT7DashboardApp());
+    runApp(const Gt7TrjLogApp());
   });
 }
 
-class GT7DashboardApp extends StatelessWidget {
-  const GT7DashboardApp({super.key});
+class Gt7TrjLogApp extends StatelessWidget {
+  const Gt7TrjLogApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return const MaterialApp(
-      home: TelemetryAppScreen(),
+    return MaterialApp(
+      title: 'NSGT7',
+      // アプリ全体で日本語表示を Noto Sans JP に明示的に固定する
+      // Explicitly pins Japanese text app-wide to Noto Sans JP
+      theme: ThemeData(fontFamily: 'Noto Sans JP'),
+      home: const TelemetryAppScreen(),
       debugShowCheckedModeBanner: false,
     );
   }
@@ -71,6 +75,6 @@ class _TelemetryAppScreenState extends State<TelemetryAppScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return TelemetryScreen(service: service);
+    return LapAnalyzerHomeScreen(telemetryService: service);
   }
 }

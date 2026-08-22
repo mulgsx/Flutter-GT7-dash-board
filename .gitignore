@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Lap logs pulled from a device for debugging (see docs/lap_analyzer_spec.md)
+/gt7_logs_pulled/

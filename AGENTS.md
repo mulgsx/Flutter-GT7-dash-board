@@ -1,4 +1,4 @@
-# GT7 Dashboard
+# NSGT7
 
 GT7 テレメトリを受信して表示する Flutter アプリ。横向き固定・iOS/Android 対応。  
 A Flutter app that receives and displays GT7 telemetry. Landscape-only, iOS/Android.

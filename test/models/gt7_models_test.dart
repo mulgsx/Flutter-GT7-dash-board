@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pointycastle/api.dart';
 import 'package:pointycastle/stream/salsa20.dart';
 
-import 'package:gt7_dashboard_flutter/models/gt7_models.dart';
+import 'package:gt7_trj_log/models/gt7_models.dart';
 
 const int _packetASize = 296;
 

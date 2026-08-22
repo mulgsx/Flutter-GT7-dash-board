@@ -1,5 +1,0 @@
-package com.example.gt7_dashboard_flutter
-
-import io.flutter.embedding.android.FlutterActivity
-
-class MainActivity : FlutterActivity()
