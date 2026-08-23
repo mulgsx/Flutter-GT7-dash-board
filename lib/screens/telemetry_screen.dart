@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../services/gt7_telemetry_service.dart';
 import '../theme/app_colors.dart';
 import '../widgets/telemetry_drawer_widget.dart';
@@ -7,7 +8,7 @@ import '../widgets/fuel_panel.dart';
 import '../widgets/tire_panel.dart';
 import '../widgets/lap_panel.dart';
 
-class TelemetryScreen extends StatelessWidget {
+class TelemetryScreen extends StatefulWidget {
   // GT7テレメトリサービスを受け取り、画面全体で共有する
   // Accepts the GT7 telemetry service instance shared across this screen
   final GT7TelemetryService service;
@@ -15,7 +16,33 @@ class TelemetryScreen extends StatelessWidget {
   const TelemetryScreen({super.key, required this.service});
 
   @override
+  State<TelemetryScreen> createState() => _TelemetryScreenState();
+}
+
+class _TelemetryScreenState extends State<TelemetryScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // ダッシュボードはGT7と同じ横向きレイアウト前提なので、表示中だけ横向きに固定する
+    // The dashboard is laid out for GT7's landscape orientation, so lock to
+    // landscape only while this screen is shown
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+  }
+
+  @override
+  void dispose() {
+    // 他画面は縦横どちらにも対応するので、離れる際は向きの固定を解除する
+    // Other screens support both orientations, so release the lock on exit
+    SystemChrome.setPreferredOrientations(DeviceOrientation.values);
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final service = widget.service;
     return Scaffold(
       backgroundColor: AppColors.surface0,
       // drawer: 左から開く / endDrawer: 右から開く（現在は左）

@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
-import '../models/lap_capture.dart';
-import '../widgets/input_trace_chart.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/models/lap_capture.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/widgets/input_trace_chart.dart';
+import 'package:gt7_trj_log/theme/la_strings.dart';
+import 'package:gt7_trj_log/theme/la_text_styles.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_panel.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_scaffold.dart';
 
 /// ターゲット vs ベストのオフライン比較画面(throttle/brakeを距離軸で並べて表示)
 /// Offline target vs best comparison screen (throttle/brake plotted against distance)
@@ -16,19 +20,31 @@ class OfflineCompareScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('オフライン比較')),
+    return LAScaffold(
+      title: LAStrings.offlineCompareTitle,
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                Text('ターゲット: ${_formatLapTime(target.lapTimeMs)}'),
-                Text('ベスト: ${_formatLapTime(best.lapTimeMs)}'),
-              ],
+            LAPanel(
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                children: [
+                  Text(
+                    LAStrings.targetLoaded(
+                      _formatLapTime(target.lapTimeMs),
+                    ),
+                    style: LATextStyles.value,
+                  ),
+                  Text(
+                    LAStrings.bestLoaded(
+                      _formatLapTime(best.lapTimeMs),
+                    ),
+                    style: LATextStyles.value,
+                  ),
+                ],
+              ),
             ),
             const SizedBox(height: 16),
             Expanded(child: InputTraceChart(target: target, best: best)),
@@ -59,10 +75,10 @@ class _Legend extends StatelessWidget {
     return Wrap(
       spacing: 16,
       children: const [
-        _LegendItem(color: Colors.greenAccent, label: 'ターゲット throttle'),
-        _LegendItem(color: Color(0xFF1B5E20), label: 'ベスト throttle'),
-        _LegendItem(color: Colors.redAccent, label: 'ターゲット brake'),
-        _LegendItem(color: Color(0xFFB71C1C), label: 'ベスト brake'),
+        _LegendItem(color: Colors.greenAccent, label: LAStrings.targetThrottle),
+        _LegendItem(color: Color(0xFF1B5E20), label: LAStrings.bestThrottle),
+        _LegendItem(color: Colors.redAccent, label: LAStrings.targetBrake),
+        _LegendItem(color: Color(0xFFB71C1C), label: LAStrings.bestBrake),
       ],
     );
   }
@@ -81,7 +97,7 @@ class _LegendItem extends StatelessWidget {
       children: [
         Container(width: 12, height: 12, color: color),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(fontSize: 12)),
+        Text(label, style: LATextStyles.label),
       ],
     );
   }

@@ -24,14 +24,13 @@ void main() {
   // Keep the screen awake while the app is running, since it's used as an always-on dashboard
   WakelockPlus.enable();
 
-  // GT7 は横向きのゲームなのでダッシュボードも横向きに固定する / Lock to landscape to match GT7's orientation
-  // 向き設定の完了を待ってから起動する / Launch only after orientation lock is applied
-  SystemChrome.setPreferredOrientations([
-    DeviceOrientation.landscapeLeft,
-    DeviceOrientation.landscapeRight,
-  ]).then((_) {
-    runApp(const Gt7TrjLogApp());
-  });
+  // ダッシュボード画面(TelemetryScreen)だけ横向きに固定し、それ以外の画面は
+  // 縦向きにも対応させたいので、アプリ全体では向きを固定しない
+  // (ダッシュボード側で表示中だけ横向きに固定する)
+  // Only the Dashboard screen (TelemetryScreen) needs to stay landscape-locked;
+  // other screens should support portrait too, so the orientation isn't
+  // fixed app-wide here (TelemetryScreen locks it itself while shown)
+  runApp(const Gt7TrjLogApp());
 }
 
 class Gt7TrjLogApp extends StatelessWidget {
@@ -43,7 +42,21 @@ class Gt7TrjLogApp extends StatelessWidget {
       title: 'NSGT7',
       // アプリ全体で日本語表示を Noto Sans JP に明示的に固定する
       // Explicitly pins Japanese text app-wide to Noto Sans JP
-      theme: ThemeData(fontFamily: 'Noto Sans JP'),
+      // colorSchemeを指定しないとMaterial 3既定の紫系シード色になるため、
+      // 白黒基調のLAカラーパレットに合わせて明示的に指定する
+      // Without an explicit colorScheme, Material 3 defaults to a purple
+      // seed color; set one explicitly to match the black/white LA palette
+      theme: ThemeData(
+        fontFamily: 'Noto Sans JP',
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: Colors.black,
+          brightness: Brightness.light,
+          primary: Colors.black87,
+          onPrimary: Colors.white,
+          surface: Colors.white,
+          onSurface: Colors.black87,
+        ),
+      ),
       home: const TelemetryAppScreen(),
       debugShowCheckedModeBanner: false,
     );

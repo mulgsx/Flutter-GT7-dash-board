@@ -1,8 +1,16 @@
 import 'package:flutter/material.dart';
-import '../models/lap_capture.dart';
-import '../models/telemetry_sample.dart';
-import '../services/lap_capture_service.dart';
-import '../widgets/capture_progress_painter.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/models/lap_capture.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/models/telemetry_sample.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/services/lap_capture_service.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/widgets/capture_progress_painter.dart';
+import 'package:gt7_trj_log/theme/la_icons.dart';
+import 'package:gt7_trj_log/theme/la_strings.dart';
+import 'package:gt7_trj_log/theme/la_text_styles.dart';
+import 'package:gt7_trj_log/widgets/dialogs/la_confirm_dialog.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_button.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_panel.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_scaffold.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_secondary_button.dart';
 
 /// ターゲット/ベストラップ読み込み共通画面。次のラップ境界から1周分をキャプチャし、
 /// 完了したら「記録できました」表示に切り替える(自動では戻らない)
@@ -71,30 +79,21 @@ class _CaptureScreenState extends State<CaptureScreen> {
         "${millis.toString().padLeft(3, '0')}";
   }
 
-  Future<bool> _confirmDiscardRecording() async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('記録を中断しますか?'),
-        content: const Text('ラップを記録中です。今戻ると、この周回の記録は破棄されます。'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('続ける'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('戻る'),
-          ),
-        ],
-      ),
+  Future<bool> _confirmDiscardRecording() {
+    return LAConfirmDialog.show(
+      context,
+      title: LAStrings.discardRecordingTitle,
+      message: LAStrings.discardRecordingMessage,
+      cancelLabel: LAStrings.continueRecording,
+      confirmLabel: LAStrings.back,
     );
-    return result ?? false;
   }
 
   @override
   Widget build(BuildContext context) {
-    final label = widget.type == LapType.target ? 'ターゲット' : 'ベストラップ';
+    final label = widget.type == LapType.target
+        ? LAStrings.target
+        : LAStrings.best;
     final completed = _completedLap;
     return ValueListenableBuilder<bool>(
       valueListenable: widget.lapCaptureService.isArmedRecordingNotifier,
@@ -114,39 +113,48 @@ class _CaptureScreenState extends State<CaptureScreen> {
           child: child!,
         );
       },
-      child: Scaffold(
-        appBar: AppBar(title: Text('$label読み込み')),
+      child: LAScaffold(
+        title: LAStrings.captureTitle(label),
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                if (completed == null)
-                  ValueListenableBuilder<bool>(
-                    valueListenable:
-                        widget.lapCaptureService.isArmedRecordingNotifier,
-                    builder: (context, armed, _) => Text(
-                      armed
-                          ? '1周走ってください\n完了すると自動的に$labelとして保存されます'
-                          : '次のラップ開始(スタート/ゴールライン通過)を待っています…',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 16),
-                    ),
-                  )
-                else
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.check_circle, color: Colors.greenAccent),
-                      const SizedBox(width: 8),
-                      Text(
-                        '記録できました($label: ${_formatLapTime(completed.lapTimeMs)})',
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(fontSize: 16),
-                      ),
-                    ],
-                  ),
+                LAPanel(
+                  child: completed == null
+                      ? ValueListenableBuilder<bool>(
+                          valueListenable:
+                              widget.lapCaptureService.isArmedRecordingNotifier,
+                          builder: (context, armed, _) => Text(
+                            armed
+                                ? LAStrings.recordingArmedInstruction(
+                                    label,
+                                  )
+                                : LAStrings.waitingForLapStart,
+                            textAlign: TextAlign.center,
+                            style: LATextStyles.heading,
+                          ),
+                        )
+                      : Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Icon(
+                              LAIcons.success,
+                              color: Colors.greenAccent,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              LAStrings.recordedResult(
+                                label,
+                                _formatLapTime(completed.lapTimeMs),
+                              ),
+                              textAlign: TextAlign.center,
+                              style: LATextStyles.heading,
+                            ),
+                          ],
+                        ),
+                ),
                 const SizedBox(height: 16),
                 // 計測中(または確定済み)の軌跡を描画し、どれだけ読めているか可視化する
                 // Draws the in-progress (or completed) trajectory, to show how much was captured
@@ -232,11 +240,18 @@ class _CaptureScreenState extends State<CaptureScreen> {
                               widget.lapCaptureService.currentLapSamples.length;
                           final distanceM = sample?.distanceM ?? 0;
                           final elapsedSec = (sample?.elapsedMs ?? 0) / 1000;
-                          final label = armed ? '記録中' : 'モニタリング中(未確定)';
+                          final label = armed
+                              ? LAStrings.recordingLabel
+                              : LAStrings.monitoringLabel;
                           return Text(
-                            '$label: $count サンプル / ${distanceM.toStringAsFixed(0)} m / '
-                            '${elapsedSec.toStringAsFixed(1)} 秒',
+                            LAStrings.recordingProgress(
+                              label,
+                              count,
+                              distanceM.toStringAsFixed(0),
+                              elapsedSec.toStringAsFixed(1),
+                            ),
                             textAlign: TextAlign.center,
+                            style: LATextStyles.value,
                           );
                         },
                       );
@@ -244,24 +259,29 @@ class _CaptureScreenState extends State<CaptureScreen> {
                   )
                 else ...[
                   Text(
-                    '記録完了: ${completed.samples.length} サンプル / '
-                    '${completed.samples.isEmpty ? 0 : completed.samples.last.distanceM.toStringAsFixed(0)} m',
+                    LAStrings.recordingComplete(
+                      completed.samples.length,
+                      completed.samples.isEmpty
+                          ? '0'
+                          : completed.samples.last.distanceM.toStringAsFixed(0),
+                    ),
                     textAlign: TextAlign.center,
+                    style: LATextStyles.value,
                   ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
                       Expanded(
-                        child: OutlinedButton(
+                        child: LASecondaryButton(
+                          label: LAStrings.retryCapture,
                           onPressed: _retryCapture,
-                          child: const Text('もう一度記録する'),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: ElevatedButton(
+                        child: LAButton(
+                          label: LAStrings.returnHome,
                           onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('ホームに戻る'),
                         ),
                       ),
                     ],

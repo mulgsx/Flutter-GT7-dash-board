@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import '../extensions/build_context_extensions.dart';
-import '../services/gt7_telemetry_service.dart';
-import '../theme/app_colors.dart';
-import 'dialogs/input_value_dialog.dart';
+import 'package:gt7_trj_log/extensions/build_context_extensions.dart';
+import 'package:gt7_trj_log/services/gt7_telemetry_service.dart';
+import 'package:gt7_trj_log/theme/app_colors.dart';
+import 'package:gt7_trj_log/theme/app_strings.dart';
+import 'package:gt7_trj_log/widgets/dialogs/input_value_dialog.dart';
 
 class TelemetryDrawer extends StatefulWidget {
   // Drawer が必要な状態をすべて service から自分で取得する
@@ -109,15 +110,26 @@ class _TelemetryDrawerState extends State<TelemetryDrawer>
                 // Widget 側に個別指定せず Column で一括制御する / Controlled here on the Column rather than per widget
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // Drawer 上部のタイトル表示 / Title at the top of the drawer
-                  const Padding(
-                    padding: EdgeInsets.only(top: 16.0, bottom: 8.0),
-                    child: Text(
-                      'Menu',
-                      style: TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.bold,
-                      ),
+                  // Drawer 上部のタイトル表示 + 閉じるボタン
+                  // Title at the top of the drawer, plus a close button
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8.0, bottom: 8.0),
+                    child: Row(
+                      children: [
+                        const Expanded(
+                          child: Text(
+                            AppStrings.ipSettingsTitle,
+                            style: TextStyle(
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.of(context).pop(),
+                        ),
+                      ],
                     ),
                   ),
                   const Divider(),
@@ -132,7 +144,7 @@ class _TelemetryDrawerState extends State<TelemetryDrawer>
                     showCursor: false,
                     onTap: () => InputValueDialog.show(
                       context,
-                      title: 'PS5 IP Address',
+                      title: AppStrings.ps5IpAddressLabel,
                       controller: widget.service.ipController,
                       // 数字キーボードを表示する
                       // decimal: true  → .（ドット）キーを表示する（IPアドレスに必要）
@@ -151,13 +163,13 @@ class _TelemetryDrawerState extends State<TelemetryDrawer>
                       inputFormatters: [
                         FilteringTextInputFormatter.allow(RegExp(r'[0-9\.]')),
                       ],
-                      hintText: 'ex: 192.168.0.50',
+                      hintText: AppStrings.ipAddressHint,
                     ),
                     decoration: InputDecoration(
                       // フォーカス時に上に浮き上がるラベル / Label that floats above the field when focused
-                      labelText: 'PS5 IP Address',
+                      labelText: AppStrings.ps5IpAddressLabel,
                       // 未入力時にグレーで表示されるヒント / Placeholder shown in grey when empty
-                      hintText: 'ex: 192.168.0.50',
+                      hintText: AppStrings.ipAddressHint,
                       // 枠線を四角形で表示する / Displays a rectangular border around the field
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(10),
@@ -182,21 +194,23 @@ class _TelemetryDrawerState extends State<TelemetryDrawer>
                         showCursor: false,
                         onTap: () => InputValueDialog.show(
                           context,
-                          title: 'Rev Warning RPM',
+                          title: AppStrings.revWarningRpmLabel,
                           controller: widget.service.revWarningController,
                           focusNode: widget.service.revWarningFocusNode,
                           keyboardType: TextInputType.number,
                           inputFormatters: [
                             FilteringTextInputFormatter.digitsOnly,
                           ],
-                          hintText: 'ex: 6800',
+                          hintText: AppStrings.revWarningRpmHint,
                           // Enter で確定した場合もフォーカスを外さず保存できるようにする
                           // Also commit on Enter, so it saves without requiring the user to tap away
                           onSubmitted: widget.service.commitRevWarningOverride,
                         ),
                         decoration: InputDecoration(
-                          labelText: 'Rev Warning RPM',
-                          hintText: editable ? 'ex: 6800' : 'Connect to GT7 first',
+                          labelText: AppStrings.revWarningRpmLabel,
+                          hintText: editable
+                              ? AppStrings.revWarningRpmHint
+                              : AppStrings.connectToGt7First,
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                           ),
@@ -232,16 +246,17 @@ class _TelemetryDrawerState extends State<TelemetryDrawer>
                     onPressed: isListening
                         ? widget.service.stopListening
                         : () async {
-                            final success = await widget.service
-                                .startListening(
-                                  widget.service.ipController.text,
-                                );
+                            final success = await widget.service.startListening(
+                              widget.service.ipController.text,
+                            );
                             if (success && context.mounted) {
                               Navigator.of(context).pop();
                             }
                           },
                     child: Text(
-                      isListening ? 'Stop Receiving' : 'Start Receiving',
+                      isListening
+                          ? AppStrings.stopReceiving
+                          : AppStrings.startReceiving,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -251,7 +266,7 @@ class _TelemetryDrawerState extends State<TelemetryDrawer>
                   ),
                   const Divider(),
                   Text(
-                    'Status: $status',
+                    AppStrings.statusLabel(status),
                     style: TextStyle(
                       fontSize: 14,
                       color: _colorForStatusType(statusType),

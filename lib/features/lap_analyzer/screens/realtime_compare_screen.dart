@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
-import '../models/lap_capture.dart';
-import '../models/telemetry_sample.dart';
-import '../services/lap_capture_service.dart';
-import '../services/realtime_diff_service.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/models/lap_capture.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/models/telemetry_sample.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/services/lap_capture_service.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/services/realtime_diff_service.dart';
+import 'package:gt7_trj_log/theme/la_colors.dart';
+import 'package:gt7_trj_log/theme/la_strings.dart';
+import 'package:gt7_trj_log/theme/la_text_styles.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_panel.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_scaffold.dart';
 
 /// 現在の走行とターゲットラップを距離ベースで突き合わせ、常時差分を表示する画面
 /// Screen that continuously compares the current drive against the target lap by distance
@@ -62,83 +67,70 @@ class _RealtimeCompareScreenState extends State<RealtimeCompareScreen> {
   @override
   Widget build(BuildContext context) {
     final service = widget.realtimeDiffService;
-    return Scaffold(
-      backgroundColor: _kBackground,
-      appBar: AppBar(
-        title: Text('リアルタイム差分比較(${widget.opponentLabel})'),
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black87,
-        elevation: 1,
-      ),
+    final isPortrait =
+        MediaQuery.of(context).orientation == Orientation.portrait;
+    final startSpeedChip = ValueListenableBuilder<TelemetrySample?>(
+      valueListenable: widget.lapCaptureService.currentSampleNotifier,
+      builder: (context, _, _) {
+        final ownSamples = widget.lapCaptureService.currentLapSamples;
+        final ownStartSpeed = ownSamples.isEmpty
+            ? null
+            : ownSamples.first.speedKmh;
+        return _StartSpeedChip(
+          ownStartSpeedKmh: ownStartSpeed,
+          targetStartSpeedKmh: widget.target.startSpeedKmh,
+        );
+      },
+    );
+    final deltaPanel = _DeltaPanel(service: service);
+    final compareColumn = _CompareColumn(
+      service: service,
+      lapCaptureService: widget.lapCaptureService,
+    );
+
+    return LAScaffold(
+      title: LAStrings.realtimeCompareTitle(widget.opponentLabel),
       body: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              ValueListenableBuilder<TelemetrySample?>(
-                valueListenable: widget.lapCaptureService.currentSampleNotifier,
-                builder: (context, _, _) {
-                  final ownSamples = widget.lapCaptureService.currentLapSamples;
-                  final ownStartSpeed = ownSamples.isEmpty
-                      ? null
-                      : ownSamples.first.speedKmh;
-                  return _StartSpeedChip(
-                    ownStartSpeedKmh: ownStartSpeed,
-                    targetStartSpeedKmh: widget.target.startSpeedKmh,
-                  );
-                },
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: Row(
+          // 縦向きの場合は横に並べる幅がないので、上から下へ積み上げてスクロールさせる
+          // In portrait there isn't enough width to sit side-by-side, so stack
+          // top-to-bottom and let the content scroll instead
+          child: isPortrait
+              ? SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      startSpeedChip,
+                      const SizedBox(height: 12),
+                      deltaPanel,
+                      const SizedBox(height: 12),
+                      compareColumn,
+                    ],
+                  ),
+                )
+              : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Expanded(child: _DeltaPanel(service: service)),
-                    const SizedBox(width: 12),
+                    startSpeedChip,
+                    const SizedBox(height: 12),
                     Expanded(
-                      flex: 1,
-                      child: _CompareColumn(
-                        service: service,
-                        lapCaptureService: widget.lapCaptureService,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Expanded(child: deltaPanel),
+                          const SizedBox(width: 12),
+                          Expanded(flex: 1, child: compareColumn),
+                        ],
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );
   }
 }
-
-// 明るく視認性の高いメーター向けの配色
-// A bright, high-visibility color palette suited for a meter-style display
-const _kBackground = Color(0xFFEFF1F4);
-const _kPanelBackground = Colors.white;
-const _kLabelColor = Color(0xFF6B7280);
-const _kValueColor = Color(0xFF1F2430);
-const _kGood = Color(0xFF1E8E3E); // 自分が速い/良い方向 / self is faster/better
-const _kBad = Color(0xFFD93025); // 自分が遅い/悪い方向 / self is slower/worse
-const _kTargetBarColor = Color(0xFFC7CBD1);
-const _kThrottleColor = Color(0xFF1E8E3E);
-const _kBrakeColor = Color(0xFFD93025);
-const _kSelfDotColor = Color(0xFF1A73E8);
-const _kGapHighlight = Color(0xFFF9A825); // 自分と対象の差を強調する色 / Highlights the gap between self and target
-
-BoxDecoration _panelDecoration() => BoxDecoration(
-  color: _kPanelBackground,
-  borderRadius: BorderRadius.circular(14),
-  boxShadow: [
-    BoxShadow(
-      color: Colors.black.withValues(alpha: 0.06),
-      blurRadius: 6,
-      offset: const Offset(0, 2),
-    ),
-  ],
-);
 
 class _StartSpeedChip extends StatelessWidget {
   final double? ownStartSpeedKmh;
@@ -153,37 +145,31 @@ class _StartSpeedChip extends StatelessWidget {
   Widget build(BuildContext context) {
     final own = ownStartSpeedKmh;
     final diff = own == null ? null : own - targetStartSpeedKmh;
-    return Container(
+    return LAPanel(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-      decoration: _panelDecoration(),
       child: Row(
         children: [
-          const Text(
-            'スタート速度',
-            style: TextStyle(fontSize: 12, color: _kLabelColor),
-          ),
+          const Text(LAStrings.startSpeed, style: LATextStyles.label),
           const SizedBox(width: 10),
           Text(
-            '自分 ${own == null ? '--' : own.toStringAsFixed(1)}',
-            style: const TextStyle(
+            LAStrings.ownValue(own == null ? '--' : own.toStringAsFixed(1)),
+            style: LATextStyles.valueEmphasis.copyWith(
               fontSize: 13,
-              color: _kValueColor,
-              fontWeight: FontWeight.w600,
+              color: LAColors.value,
             ),
           ),
           const SizedBox(width: 6),
           Text(
-            '/ 対象 ${targetStartSpeedKmh.toStringAsFixed(1)} km/h',
-            style: const TextStyle(fontSize: 12, color: _kLabelColor),
+            LAStrings.targetValueKmh(targetStartSpeedKmh.toStringAsFixed(1)),
+            style: LATextStyles.label,
           ),
           if (diff != null) ...[
             const SizedBox(width: 8),
             Text(
               '${diff >= 0 ? '+' : ''}${diff.toStringAsFixed(1)}',
-              style: TextStyle(
+              style: LATextStyles.valueEmphasis.copyWith(
                 fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: diff >= 0 ? _kGood : _kBad,
+                color: diff >= 0 ? LAColors.good : LAColors.bad,
               ),
             ),
           ],
@@ -200,8 +186,7 @@ class _DeltaPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: _panelDecoration(),
+    return LAPanel(
       padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -210,18 +195,14 @@ class _DeltaPanel extends StatelessWidget {
             valueListenable: service.deltaSecondsNotifier,
             builder: (context, delta, _) {
               final color = delta == null
-                  ? _kLabelColor
-                  : (delta <= 0 ? _kGood : _kBad);
+                  ? LAColors.label
+                  : (delta <= 0 ? LAColors.good : LAColors.bad);
               final text = delta == null
                   ? '--.---'
                   : '${delta <= 0 ? '-' : '+'}${delta.abs().toStringAsFixed(3)}';
               return Text(
                 text,
-                style: TextStyle(
-                  fontSize: 48,
-                  fontWeight: FontWeight.bold,
-                  color: color,
-                ),
+                style: LATextStyles.bigNumber.copyWith(color: color),
               );
             },
           ),
@@ -229,9 +210,11 @@ class _DeltaPanel extends StatelessWidget {
           ValueListenableBuilder<bool>(
             valueListenable: service.hasSeenLapStartNotifier,
             builder: (context, hasStarted, _) => Text(
-              hasStarted ? 'ターゲット比(秒)' : 'スタートラインを通過すると表示されます',
+              hasStarted
+                  ? LAStrings.deltaVsTargetLabel
+                  : LAStrings.waitingForStartLine,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 12, color: _kLabelColor),
+              style: LATextStyles.label,
             ),
           ),
           const SizedBox(height: 12),
@@ -297,7 +280,7 @@ class _SparklinePainter extends CustomPainter {
     canvas.drawPath(
       path,
       Paint()
-        ..color = last <= 0 ? _kGood : _kBad
+        ..color = last <= 0 ? LAColors.good : LAColors.bad
         ..strokeWidth = 2.5
         ..style = PaintingStyle.stroke
         ..strokeCap = StrokeCap.round
@@ -321,8 +304,7 @@ class _CompareColumn extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: _panelDecoration(),
+    return LAPanel(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       child: ValueListenableBuilder<TelemetrySample?>(
         valueListenable: lapCaptureService.currentSampleNotifier,
@@ -346,17 +328,17 @@ class _CompareColumn extends StatelessWidget {
                   ),
                   const SizedBox(height: 14),
                   _PedalBarBlock(
-                    label: 'アクセル',
+                    label: LAStrings.throttle,
                     ownValue: ownSample?.throttle,
                     targetValue: targetSample?.throttle,
-                    color: _kThrottleColor,
+                    color: LAColors.throttle,
                   ),
                   const SizedBox(height: 10),
                   _PedalBarBlock(
-                    label: 'ブレーキ',
+                    label: LAStrings.brake,
                     ownValue: ownSample?.brake,
                     targetValue: targetSample?.brake,
-                    color: _kBrakeColor,
+                    color: LAColors.brake,
                   ),
                   const SizedBox(height: 14),
                   ValueListenableBuilder<double?>(
@@ -390,26 +372,26 @@ class _SpeedCompareRow extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.baseline,
       textBaseline: TextBaseline.alphabetic,
       children: [
-        const Text('速度', style: TextStyle(fontSize: 13, color: _kLabelColor)),
+        const Text(LAStrings.speed, style: LATextStyles.labelMedium),
         Row(
           children: [
             Text(
-              '自分 ${own == null ? '--' : own.toStringAsFixed(0)}',
-              style: const TextStyle(fontSize: 14, color: _kValueColor),
+              LAStrings.ownValue(own == null ? '--' : own.toStringAsFixed(0)),
+              style: LATextStyles.value,
             ),
             const SizedBox(width: 6),
             Text(
-              '/ 対象 ${target == null ? '--' : target.toStringAsFixed(0)} km/h',
-              style: const TextStyle(fontSize: 12, color: _kLabelColor),
+              LAStrings.targetValueKmh(
+                target == null ? '--' : target.toStringAsFixed(0),
+              ),
+              style: LATextStyles.label,
             ),
             if (diff != null) ...[
               const SizedBox(width: 6),
               Text(
                 '${diff >= 0 ? '+' : ''}${diff.toStringAsFixed(0)}',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: diff >= 0 ? _kGood : _kBad,
+                style: LATextStyles.valueEmphasis.copyWith(
+                  color: diff >= 0 ? LAColors.good : LAColors.bad,
                 ),
               ),
             ],
@@ -430,24 +412,20 @@ class _BrakingPointCompareRow extends StatelessWidget {
     final delta = deltaMeters;
     // 正=ターゲットより奥まで我慢してブレーキ=良い方向 / positive = braked later than target = good
     final color = delta == null
-        ? _kLabelColor
-        : (delta >= 0 ? _kGood : _kBad);
+        ? LAColors.label
+        : (delta >= 0 ? LAColors.good : LAColors.bad);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         const Text(
-          'ブレーキング地点差',
-          style: TextStyle(fontSize: 13, color: _kLabelColor),
+          LAStrings.brakingPointDelta,
+          style: LATextStyles.labelMedium,
         ),
         Text(
           delta == null
               ? '--'
               : '${delta >= 0 ? '+' : ''}${delta.toStringAsFixed(1)} m',
-          style: TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
+          style: LATextStyles.valueEmphasis.copyWith(color: color),
         ),
       ],
     );
@@ -485,22 +463,21 @@ class _PedalBarBlock extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: _kLabelColor)),
+            Text(label, style: LATextStyles.label),
             Row(
               children: [
                 Text(
                   '自分 ${(own * 100).toStringAsFixed(0)}% / '
                   '対象 ${(target * 100).toStringAsFixed(0)}%',
-                  style: const TextStyle(fontSize: 12, color: _kLabelColor),
+                  style: LATextStyles.label,
                 ),
                 if (hasGap) ...[
                   const SizedBox(width: 6),
                   Text(
                     '${diff >= 0 ? '+' : ''}${(diff * 100).toStringAsFixed(0)}%',
-                    style: const TextStyle(
+                    style: LATextStyles.valueEmphasis.copyWith(
                       fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      color: _kGapHighlight,
+                      color: LAColors.gapHighlight,
                     ),
                   ),
                 ],
@@ -518,10 +495,10 @@ class _PedalBarBlock extends StatelessWidget {
                 final width = constraints.maxWidth;
                 return Stack(
                   children: [
-                    Container(color: const Color(0xFFE4E6EA)),
+                    Container(color: LAColors.trackBase),
                     FractionallySizedBox(
                       widthFactor: target,
-                      child: Container(color: _kTargetBarColor),
+                      child: Container(color: LAColors.targetBar),
                     ),
                     FractionallySizedBox(
                       widthFactor: own,
@@ -536,7 +513,7 @@ class _PedalBarBlock extends StatelessWidget {
                         top: 0,
                         bottom: 0,
                         child: Container(
-                          color: _kGapHighlight.withValues(alpha: 0.65),
+                          color: LAColors.gapHighlight.withValues(alpha: 0.65),
                         ),
                       ),
                   ],
@@ -570,8 +547,8 @@ class _LinePositionIndicator extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         const Text(
-          'ライン位置(対ターゲット)',
-          style: TextStyle(fontSize: 12, color: _kLabelColor),
+          LAStrings.linePosition,
+          style: LATextStyles.label,
         ),
         const SizedBox(height: 6),
         SizedBox(
@@ -582,7 +559,7 @@ class _LinePositionIndicator extends StatelessWidget {
                 children: [
                   Container(
                     decoration: BoxDecoration(
-                      color: const Color(0xFFE4E6EA),
+                      color: LAColors.trackBase,
                       borderRadius: BorderRadius.circular(10),
                     ),
                   ),
@@ -598,7 +575,7 @@ class _LinePositionIndicator extends StatelessWidget {
                       width: 12,
                       height: 12,
                       decoration: const BoxDecoration(
-                        color: _kSelfDotColor,
+                        color: LAColors.selfDot,
                         shape: BoxShape.circle,
                       ),
                     ),

@@ -1,16 +1,23 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import '../../../screens/telemetry_screen.dart';
-import '../../../services/gt7_telemetry_service.dart';
-import '../../../widgets/telemetry_drawer_widget.dart';
-import '../models/lap_capture.dart';
-import '../services/lap_capture_service.dart';
-import '../services/lap_log_writer.dart';
-import '../services/realtime_diff_service.dart';
-import '../services/reference_lap_store.dart';
-import 'capture_screen.dart';
-import 'offline_compare_screen.dart';
-import 'realtime_compare_screen.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/models/lap_capture.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/screens/capture_screen.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/screens/offline_compare_screen.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/screens/realtime_compare_screen.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/services/lap_capture_service.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/services/lap_log_writer.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/services/realtime_diff_service.dart';
+import 'package:gt7_trj_log/features/lap_analyzer/services/reference_lap_store.dart';
+import 'package:gt7_trj_log/screens/telemetry_screen.dart';
+import 'package:gt7_trj_log/services/gt7_telemetry_service.dart';
+import 'package:gt7_trj_log/theme/la_strings.dart';
+import 'package:gt7_trj_log/theme/la_text_styles.dart';
+import 'package:gt7_trj_log/widgets/dialogs/la_confirm_dialog.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_button.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_panel.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_scaffold.dart';
+import 'package:gt7_trj_log/widgets/lap_analyzer/la_text_button.dart';
+import 'package:gt7_trj_log/widgets/telemetry_drawer_widget.dart';
 
 /// Lap Analyzerのホーム画面。3つのボタン(ターゲット読み込み・ベスト読み込み・
 /// リアルタイム差分比較)と、読み込み済みラップタイムの表示のみを持つ
@@ -97,27 +104,13 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
       return true;
     }
 
-    final proceed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('テレメトリを受信できていません'),
-        content: const Text(
-          'PS5からのUDPテレメトリが届いていません。IPアドレスや受信開始の状態を確認してください。\n'
-          'このまま進んでも、接続が確立するまでラップは記録されません。',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('戻る'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('このまま進む'),
-          ),
-        ],
-      ),
+    return LAConfirmDialog.show(
+      context,
+      title: LAStrings.notReceivingTitle,
+      message: LAStrings.notReceivingMessage,
+      cancelLabel: LAStrings.back,
+      confirmLabel: LAStrings.proceedAnyway,
     );
-    return proceed ?? false;
   }
 
   Future<void> _openCapture(LapType type) async {
@@ -127,27 +120,17 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
     final resultNotifier = type == LapType.target
         ? _targetLapNotifier
         : _bestLapNotifier;
-    final label = type == LapType.target ? 'ターゲット' : 'ベストラップ';
+    final label = type == LapType.target
+        ? LAStrings.target
+        : LAStrings.best;
 
     if (resultNotifier.value != null) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('$labelを削除しますか?'),
-          content: Text('既存の$labelを削除して、新しく記録し直します。'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('キャンセル'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+      final confirmed = await LAConfirmDialog.show(
+        context,
+        title: LAStrings.deleteConfirmTitle(label),
+        message: LAStrings.deleteConfirmMessage(label),
       );
-      if (confirmed != true) return;
+      if (!confirmed) return;
       if (!mounted) return;
 
       await _referenceLapStore.delete(type);
@@ -171,18 +154,10 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
 
   Future<void> _openRealtimeCompare(LapCapture? opponent, String label) async {
     if (opponent == null) {
-      await showDialog<void>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text('$labelが未読み込みです'),
-          content: Text('先に$labelを読み込んでください。'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('OK'),
-            ),
-          ],
-        ),
+      await LAConfirmDialog.showInfo(
+        context,
+        title: LAStrings.notLoadedTitle(label),
+        message: LAStrings.notLoadedMessage(label),
       );
       return;
     }
@@ -222,34 +197,33 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    return LAScaffold(
+      title: LAStrings.homeTitle,
       // 接続設定(IPアドレス・受信開始/停止・Rev Warning)はダッシュボードと共通のDrawerを使う
       // Reuses the same Drawer as the dashboard for connection settings
       // (IP address, start/stop receiving, Rev Warning)
       drawer: TelemetryDrawer(service: widget.telemetryService),
-      appBar: AppBar(
-        title: const Text('Lap Analyzer'),
-        leading: SafeArea(
-          child: Builder(
-            builder: (context) => IconButton(
-              icon: const Icon(Icons.menu),
-              onPressed: () => Scaffold.of(context).openDrawer(),
+      leadingWidth: 88,
+      leading: SafeArea(
+        child: Builder(
+          builder: (context) => LATextButton(
+            label: LAStrings.ipSettings,
+            onPressed: () => Scaffold.of(context).openDrawer(),
+            style: const TextStyle(fontSize: 13),
+          ),
+        ),
+      ),
+      actions: [
+        LATextButton(
+          label: LAStrings.dashboardScreen,
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (context) =>
+                  TelemetryScreen(service: widget.telemetryService),
             ),
           ),
         ),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.dashboard),
-            tooltip: 'Dashboard',
-            onPressed: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (context) =>
-                    TelemetryScreen(service: widget.telemetryService),
-              ),
-            ),
-          ),
-        ],
-      ),
+      ],
       body: SingleChildScrollView(
         child: Center(
           child: Padding(
@@ -260,57 +234,73 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  ValueListenableBuilder<LapCapture?>(
-                    valueListenable: _targetLapNotifier,
-                    builder: (context, target, _) => Text(
-                      target == null
-                          ? 'ターゲット: 未読み込み'
-                          : 'ターゲット: ${_formatLapTime(target.lapTimeMs)}',
-                      textAlign: TextAlign.center,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  ValueListenableBuilder<LapCapture?>(
-                    valueListenable: _bestLapNotifier,
-                    builder: (context, best, _) => Text(
-                      best == null
-                          ? 'ベスト: 未読み込み'
-                          : 'ベスト: ${_formatLapTime(best.lapTimeMs)}',
-                      textAlign: TextAlign.center,
+                  LAPanel(
+                    child: Column(
+                      children: [
+                        ValueListenableBuilder<LapCapture?>(
+                          valueListenable: _targetLapNotifier,
+                          builder: (context, target, _) => Text(
+                            target == null
+                                ? LAStrings.targetNotLoaded
+                                : LAStrings.targetLoaded(
+                                    _formatLapTime(target.lapTimeMs),
+                                  ),
+                            textAlign: TextAlign.center,
+                            style: LATextStyles.value,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        ValueListenableBuilder<LapCapture?>(
+                          valueListenable: _bestLapNotifier,
+                          builder: (context, best, _) => Text(
+                            best == null
+                                ? LAStrings.bestNotLoaded
+                                : LAStrings.bestLoaded(
+                                    _formatLapTime(best.lapTimeMs),
+                                  ),
+                            textAlign: TextAlign.center,
+                            style: LATextStyles.value,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 32),
-                  ElevatedButton(
+                  LAButton(
+                    label: LAStrings.loadTarget,
                     onPressed: () => _openCapture(LapType.target),
-                    child: const Text('ターゲット読み込み'),
                   ),
                   const SizedBox(height: 12),
-                  ElevatedButton(
+                  LAButton(
+                    label: LAStrings.loadBest,
                     onPressed: () => _openCapture(LapType.best),
-                    child: const Text('自分のベストラップ読み込み'),
                   ),
                   const SizedBox(height: 20),
                   const Text(
-                    'リアルタイム差分比較(比較相手を選択)',
+                    LAStrings.realtimeCompareSectionLabel,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                    style: LATextStyles.label,
                   ),
                   const SizedBox(height: 8),
                   ValueListenableBuilder<LapCapture?>(
                     valueListenable: _targetLapNotifier,
-                    builder: (context, target, _) => _RealtimeCompareButton(
-                      label: 'ターゲットと比較',
-                      available: target != null,
-                      onPressed: () => _openRealtimeCompare(target, 'ターゲット'),
+                    builder: (context, target, _) => LAButton(
+                      label: LAStrings.compareWithTarget,
+                      looksDisabled: target == null,
+                      onPressed: () => _openRealtimeCompare(
+                        target,
+                        LAStrings.target,
+                      ),
                     ),
                   ),
                   const SizedBox(height: 12),
                   ValueListenableBuilder<LapCapture?>(
                     valueListenable: _bestLapNotifier,
-                    builder: (context, best, _) => _RealtimeCompareButton(
-                      label: 'ベストラップと比較',
-                      available: best != null,
-                      onPressed: () => _openRealtimeCompare(best, 'ベストラップ'),
+                    builder: (context, best, _) => LAButton(
+                      label: LAStrings.compareWithBest,
+                      looksDisabled: best == null,
+                      onPressed: () =>
+                          _openRealtimeCompare(best, LAStrings.best),
                     ),
                   ),
                   const SizedBox(height: 20),
@@ -321,11 +311,11 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
                         valueListenable: _bestLapNotifier,
                         builder: (context, best, _) {
                           final canCompare = target != null && best != null;
-                          return TextButton(
+                          return LATextButton(
+                            label: LAStrings.offlineCompareButton,
                             onPressed: canCompare
                                 ? () => _openOfflineCompare(target, best)
                                 : null,
-                            child: const Text('オフライン比較(ターゲット vs ベスト)'),
                           );
                         },
                       );
@@ -337,38 +327,6 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
           ),
         ),
       ),
-    );
-  }
-}
-
-/// データ未読み込み時は非活性の見た目にしつつ、タップは常に受け付けて
-/// (未読み込みなら案内ダイアログを出すため)ボタン自体は無効化しない
-/// Looks disabled when the data isn't loaded yet, but always accepts taps
-/// (so a missing-data tap can show the guidance dialog) — the button itself
-/// is never truly disabled.
-class _RealtimeCompareButton extends StatelessWidget {
-  final String label;
-  final bool available;
-  final VoidCallback onPressed;
-
-  const _RealtimeCompareButton({
-    required this.label,
-    required this.available,
-    required this.onPressed,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return ElevatedButton(
-      onPressed: onPressed,
-      style: available
-          ? null
-          : ElevatedButton.styleFrom(
-              backgroundColor: Colors.grey.shade300,
-              foregroundColor: Colors.grey.shade600,
-              elevation: 0,
-            ),
-      child: Text(label, textAlign: TextAlign.center),
     );
   }
 }
