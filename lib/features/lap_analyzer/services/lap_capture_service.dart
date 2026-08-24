@@ -44,19 +44,19 @@ class LapCaptureService {
   // high, which a speed-based threshold can never catch. So the position jump
   // itself is checked directly.
   static const double _maxPlausiblePositionJumpMeters = 40.0;
-  // 瞬間移動で開始した区間(＝開始時点で対応する last_lap 値を持たない)が
-  // 通常の境界で終わった場合、その区間の実測時間(最後のサンプルの elapsedMs)
-  // が申告された last_lap 値のこの割合以上なければ「対戦相手のリプレイの
-  // ランダムな断片を拾っただけ」とみなして破棄する。瞬間移動は常に有効な
-  // 開始時刻を確立するようになった(以前の「開始時刻不明」による自動破棄が
-  // 効かなくなった)ため、その代わりの安全策としてこのチェックを行う
-  // If a segment that began via a teleport (and so has no last_lap value of
-  // its own paired with its start) ends at a normal boundary, and its
-  // measured duration (the last sample's elapsedMs) is below this fraction of
-  // the claimed last_lap value, it's treated as just a random opponent-replay
-  // snippet and discarded. Teleports now always establish a valid start time
-  // (the old automatic "unknown start" discard no longer kicks in), so this
-  // check is the replacement safety net.
+  // どの境界で開始された区間であっても、実測時間(最後のサンプルの elapsedMs)
+  // が申告された last_lap 値のこの割合未満なら「本来の1周よりずっと短い断片を
+  // 拾っただけ」とみなして破棄する。実機ログでは、リプレイを見ている間は
+  // current_lap だけでなく last_lap の境界そのものも、実際の1周にかかる時間
+  // より大幅に短い間隔で切り替わることがあると確認できたため(スクラブ操作や
+  // 早送りなど)、区間の開始方法を問わずこの安全策を常に適用する
+  // Regardless of how a segment began, if its measured duration (the last
+  // sample's elapsedMs) falls below this fraction of the claimed last_lap
+  // value, it's treated as just a fragment far shorter than a real lap and
+  // discarded. Real device logs showed that while watching a replay, not
+  // just current_lap but even last_lap boundaries themselves can flip on an
+  // interval far shorter than a real lap takes (e.g. scrubbing/fast-forward),
+  // so this safety net applies unconditionally, no matter how the segment started.
   static const double _minPlausibleDurationFraction = 0.7;
   // 破棄された直後に白で表示する期間。次のサンプルが来た瞬間に切り替えると
   // 1フレームも描画されずに終わってしまうため、目に見える程度の時間だけ保持する
@@ -134,17 +134,6 @@ class LapCaptureService {
   DateTime? _lapStartWallClock;
   LapType? _requestedCaptureType;
   bool _captureArmedForCurrentLap = false;
-  // 現在計測中の区間が、瞬間移動やcurrent_lapの変化など、last_lapの変化を
-  // 伴わない形で開始されたものかどうか(=開始時刻の相方となる last_lap 値を
-  // 持たない)。この区間が完了するとき、実測時間が申告タイムと矛盾しないかを
-  // 追加でチェックする必要があるかの判定に使う
-  // Whether the segment currently being tracked began via something other
-  // than a last_lap change (a teleport, or a current_lap change) — i.e. its
-  // start has no paired last_lap value of its own. Used when this segment
-  // eventually completes, to decide whether an extra duration-plausibility
-  // check is needed.
-  bool _segmentStartedViaTeleport = false;
-  int? _lastSeenCurrentLap;
 
   /// ターゲット/ベストのキャプチャを要求する。次のラップ境界から始まる
   /// 1周をまるごと記録し、完了時に onReferenceLapCaptured を呼ぶ
@@ -202,43 +191,6 @@ class LapCaptureService {
 
     _lastSeenLapTimeMs ??= packet.lapTime;
 
-    // モニタリング中(要求はあるがまだ計測モードに入っていない)に current_lap
-    // が増加したら、それを「スタートラインを超えた」合図として扱い、ここで
-    // 計測モードに入る(アームし、この瞬間から新しく区間を測り直す)。
-    // last_lap は1周分の時間が経過するまで更新されないため、それでアームすると
-    // 実際にラインを超えた時点より1周分遅れてしまい、そのアームがその直後の
-    // (前の周の終わりに伴う)瞬間移動で即座に解除されてしまっていた。
-    // current_lap は(このリプレイでは)実際にラインを超えた瞬間に増加するため、
-    // モニタリング中に限り、こちらをより早い・正確なアーム合図として使う。
-    // 「増加」に限定しているのは、瞬間移動でのリセット(例: 2→0)を誤って
-    // 「ラインを超えた」と扱わないようにするため
-    // While monitoring (a capture is requested but measuring hasn't started
-    // yet), an *increase* in current_lap is treated as "crossed the start
-    // line" and enters measuring mode here (arm, and start tracking a fresh
-    // segment from this exact point). last_lap doesn't update until a full
-    // lap has elapsed, so arming on it lagged a whole lap behind the actual
-    // crossing and got undone almost immediately by the teleport that
-    // follows the *previous* lap's end. current_lap (in this replay)
-    // increases right at the real crossing, so — while monitoring — it's
-    // used as the earlier, more accurate arming signal instead. This is
-    // restricted to increases specifically so a teleport's reset (e.g. 2→0)
-    // is never mistaken for "crossed the line."
-    if (_requestedCaptureType != null &&
-        !_captureArmedForCurrentLap &&
-        _lastSeenCurrentLap != null &&
-        packet.currentLap > _lastSeenCurrentLap!) {
-      _resetSegmentTracking();
-      _lapStartWallClock = _now();
-      _segmentStartedViaTeleport = false;
-      _captureArmedForCurrentLap = true;
-      isArmedRecordingNotifier.value = true;
-      debugPrint(
-        '[LAP_DEBUG] armed for ${_requestedCaptureType!.label} capture via '
-        'current_lap change ($_lastSeenCurrentLap -> ${packet.currentLap})',
-      );
-    }
-    _lastSeenCurrentLap = packet.currentLap;
-
     // ラップ完了は last_lap(直前ラップタイム)の値が変わったことで検知する。
     // 当初は current_lap の増加を境界にしていたが、実機ログを確認したところ
     // current_lap は(特にリプレイ再生中)必ずしも1周ごとに正しく増加せず、
@@ -264,12 +216,10 @@ class LapCaptureService {
     final finishedLapTimeMs = packet.lapTime; // last_lap: 直前ラップのタイム
     final wasArmedCapture =
         _requestedCaptureType != null && _captureArmedForCurrentLap;
-    final finishedSegmentStartedViaTeleport = _segmentStartedViaTeleport;
 
     // 新しいラップの計測を開始する / Start tracking the new lap
     _resetSegmentTracking();
     _lapStartWallClock = _now();
-    _segmentStartedViaTeleport = false;
     _lastSeenLapTimeMs = packet.lapTime;
     lapStartEventNotifier.value++;
     _armIfRequested();
@@ -281,7 +231,6 @@ class LapCaptureService {
     _finalizeOrDiscardSegment(
       rawSamples: rawFinishedSamples,
       startTime: finishedStartTime,
-      requireDurationPlausibility: finishedSegmentStartedViaTeleport,
       lapTimeMs: finishedLapTimeMs,
       wasArmedCapture: wasArmedCapture,
     );
@@ -317,27 +266,26 @@ class LapCaptureService {
     required DateTime startTime,
     required int lapTimeMs,
     required bool wasArmedCapture,
-    required bool requireDurationPlausibility,
   }) {
-    // 瞬間移動で開始した区間(＝本来の「開始」に対応するlast_lap値を持たない)が
-    // 通常の境界で終わった場合、実測時間が申告タイムと大きく食い違っていないか
-    // を確認する。一致しなければ、対戦相手のリプレイの断片を拾っただけとみなし
-    // 破棄する(以前は「開始時刻不明」として自動的に破棄されていたが、瞬間移動
-    // 自体を境界として扱うようになったことで開始時刻は常に有効になったため、
-    // 代わりにこのチェックで同じ安全策を保つ)
-    // If a segment that began via a teleport (and so has no last_lap value of
-    // its own to pair with its start) ends at a normal boundary, check that
-    // its measured duration isn't wildly inconsistent with the claimed lap
-    // time. If it doesn't match, it's treated as just a random
-    // opponent-replay snippet and discarded (this used to be caught
-    // automatically via an "unknown start time," but since teleports now
-    // always establish a valid start, this check keeps the same safety net).
-    if (requireDurationPlausibility &&
-        rawSamples.last.elapsedMs < lapTimeMs * _minPlausibleDurationFraction) {
+    // 区間がどの境界(瞬間移動/current_lapの変化/last_lapの変化)で開始された
+    // かに関わらず、実測時間が申告タイムと大きく食い違っていないかを確認する。
+    // 一致しなければ、リプレイのスクラブ操作などで拾ってしまった本来の1周より
+    // ずっと短い断片とみなし破棄する。当初は瞬間移動で始まった区間だけに
+    // 適用していたが、last_lap の境界そのものが短い間隔で切り替わるケースも
+    // 実機ログで確認されたため、常に適用するようにした
+    // Check that the measured duration isn't wildly inconsistent with the
+    // claimed lap time, regardless of which boundary (teleport, current_lap
+    // change, or last_lap change) started this segment. If it doesn't match,
+    // it's treated as a fragment far shorter than a real lap — picked up via
+    // something like replay scrubbing — and discarded. This used to apply
+    // only to segments that began via a teleport, but real device logs
+    // showed even genuine last_lap boundaries themselves can flip on an
+    // interval far shorter than a real lap, so it's now applied unconditionally.
+    if (rawSamples.last.elapsedMs < lapTimeMs * _minPlausibleDurationFraction) {
       _discardSegment(
-        '[LAP_DEBUG] discarded a segment that started right after a '
-        'teleport — its measured duration did not plausibly match the '
-        'claimed lap time (looked like a random replay snippet)',
+        '[LAP_DEBUG] discarded a segment whose measured duration did not '
+        'plausibly match the claimed lap time (looked like a fragment far '
+        'shorter than a real lap)',
       );
       return;
     }
@@ -444,16 +392,33 @@ class LapCaptureService {
 
   // 区間の途中で位置が瞬間移動した(=リプレイのループ再生地点)瞬間に呼ばれる。
   // 前後の位置は無関係な2点なので、線で結ばれてしまわないようその場でバッファを
-  // 破棄し、この新しい位置から改めて計測を始める。ここではまだ「スタートライン
-  // を超えた」わけではないので、UI表示は白(未アーム)に戻す。実際にアームされる
-  // (赤になる)のは、この後 last_lap の変化で本物の境界が検知された時点
+  // 破棄し、この新しい位置から改めて計測を始める。
+  //
+  // モニタリング中(まだ計測モードに入っていない)にこれが起きた場合、これは
+  // まさに「リプレイがループしてスタート地点に戻った」瞬間そのものなので、
+  // キャプチャ要求があればここでアームする(この新しい位置から新しい区間の
+  // 計測を始める)。current_lap の増加をアーム合図に使っていた頃は、
+  // current_lap がラップの途中でも増えることがあり(実機ログで確認済み)、
+  // 本来のラップ全体より大幅に短い区間を「1周分」として誤って確定して
+  // しまう不具合があったため、より確実な位置リセットそのものをアーム合図に
+  // 切り替えた。既に計測モード中にこれが起きた場合は、途中で何かおかしな
+  // ことが起きた(リプレイが想定外のタイミングでループした等)とみなし、
+  // 従来通り破棄してモニタリングに戻す
   // Called the instant the position teleports mid-segment (a replay
   // loop-restart point). The points before and after are unrelated, so the
   // buffer is discarded on the spot rather than letting the painter draw a
   // line between them, and tracking restarts fresh from this new position.
-  // This is not yet "crossing the start line", so the UI falls back to white
-  // (not armed). Arming (turning red) only happens later, once a genuine
-  // boundary is detected via last_lap changing.
+  //
+  // If this happens while monitoring (not yet measuring), it *is* the
+  // moment the replay looped back to the start, so a pending capture
+  // request arms right here (tracking a fresh segment from this new
+  // position). Arming used to happen on a current_lap increase instead, but
+  // real device logs showed current_lap can increase mid-lap too, which
+  // sometimes finalized a segment far shorter than a real lap as if it were
+  // a complete one — this switched to the more reliable position-reset
+  // signal itself. If this happens while already measuring, something went
+  // wrong mid-lap (e.g. the replay looped at an unexpected time), so it's
+  // discarded and monitoring resumes as before.
   //
   // last_lap の値もここでリセットする(null にする)。自分の固定ベストラップを
   // ループ再生している場合、last_lap は毎回同じ値に戻るだけで、直前に記録して
@@ -483,12 +448,22 @@ class LapCaptureService {
       '(${jumpMeters.toStringAsFixed(1)} m in one sample)',
     );
 
+    final wasAlreadyMeasuring = _captureArmedForCurrentLap;
     _resetSegmentTracking();
     _lapStartWallClock = _now();
-    _segmentStartedViaTeleport = true;
     _lastSeenLapTimeMs = null;
-    _captureArmedForCurrentLap = false;
-    isArmedRecordingNotifier.value = false;
+
+    if (!wasAlreadyMeasuring && _requestedCaptureType != null) {
+      _captureArmedForCurrentLap = true;
+      isArmedRecordingNotifier.value = true;
+      debugPrint(
+        '[LAP_DEBUG] armed for ${_requestedCaptureType!.label} capture via '
+        'post-teleport position reset',
+      );
+    } else {
+      _captureArmedForCurrentLap = false;
+      isArmedRecordingNotifier.value = false;
+    }
   }
 
   void _accumulateSample(GT7Packet packet) {

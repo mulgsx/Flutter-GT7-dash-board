@@ -1,3 +1,4 @@
+import 'dart:io' show Platform;
 import 'package:flutter/services.dart';
 import '../models/lap_capture.dart';
 import '../models/telemetry_sample.dart';
@@ -18,6 +19,12 @@ class LapLogWriter {
   static const _fileName = 'gt7_lap_log.txt';
 
   Future<void> write(LapCapture lap) async {
+    // このMethodChannelはMainActivity.kt側(Android専用)にしか実装がなく、
+    // iOSで呼ぶと対応するネイティブハンドラが存在せず例外になる
+    // This MethodChannel is only implemented on the Android side
+    // (MainActivity.kt) — calling it on iOS has no native handler and throws
+    if (!Platform.isAndroid) return;
+
     await _channel.invokeMethod<void>('appendToDownloadsLog', {
       'folderName': _folderName,
       'fileName': _fileName,
