@@ -12,6 +12,7 @@ class TelemetrySample {
   final double posX;
   final double posY;
   final double posZ;
+  final int gear;
 
   const TelemetrySample({
     required this.elapsedMs,
@@ -23,6 +24,7 @@ class TelemetrySample {
     required this.posX,
     required this.posY,
     required this.posZ,
+    required this.gear,
   });
 
   Map<String, dynamic> toJson() => {
@@ -35,6 +37,7 @@ class TelemetrySample {
     'posX': posX,
     'posY': posY,
     'posZ': posZ,
+    'gear': gear,
   };
 
   factory TelemetrySample.fromJson(Map<String, dynamic> json) {
@@ -48,6 +51,9 @@ class TelemetrySample {
       posX: (json['posX'] as num).toDouble(),
       posY: (json['posY'] as num).toDouble(),
       posZ: (json['posZ'] as num).toDouble(),
+      // 旧バージョンで保存されたJSONにはgearが無いため、0(未知)にフォールバックする
+      // Older saved JSON predates this field, so fall back to 0 (unknown)
+      gear: (json['gear'] as num?)?.toInt() ?? 0,
     );
   }
 }

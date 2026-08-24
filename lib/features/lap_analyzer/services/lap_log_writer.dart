@@ -35,7 +35,7 @@ class LapLogWriter {
     );
     buffer.writeln('LAP_TIME_MS: ${lap.lapTimeMs}');
     buffer.writeln(
-      'elapsed_ms,distance_m,speed_kmh,throttle,brake,steering,pos_x,pos_y,pos_z',
+      'elapsed_ms,distance_m,speed_kmh,throttle,brake,steering,pos_x,pos_y,pos_z,gear',
     );
     for (final sample in _thinned(lap.samples)) {
       buffer.writeln(_csvRow(sample));
@@ -73,6 +73,7 @@ class LapLogWriter {
       sample.posX.toStringAsFixed(1),
       sample.posY.toStringAsFixed(1),
       sample.posZ.toStringAsFixed(1),
+      sample.gear,
     ].join(',');
   }
 }

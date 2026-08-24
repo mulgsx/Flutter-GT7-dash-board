@@ -434,6 +434,7 @@ class LapCaptureService {
             posX: s.posX,
             posY: s.posY,
             posZ: s.posZ,
+            gear: s.gear,
           ),
         )
         .toList();
@@ -519,6 +520,7 @@ class LapCaptureService {
       posX: packet.positionX,
       posY: packet.positionY,
       posZ: packet.positionZ,
+      gear: packet.gear,
     );
     _buffer.add(sample);
     currentSampleNotifier.value = sample;
