@@ -93,11 +93,16 @@ class _TelemetryDrawerState extends State<TelemetryDrawer>
     String status,
     StatusType statusType,
   ) {
+    // 縦画面では横幅に余裕がないため、横向き(40%)より広い70%を確保する
+    // Portrait has much less width to work with, so use a wider 70% instead
+    // of the 40% used in landscape
+    final isPortrait =
+        MediaQuery.of(context).orientation == Orientation.portrait;
+    final widthFraction = isPortrait ? 0.7 : 0.4;
     return GestureDetector(
       onTap: () => FocusScope.of(context).unfocus(),
       child: Drawer(
-        // 横向き画面の40%を占める幅に設定する / Set width to 40% of the landscape screen
-        width: MediaQuery.of(context).size.width * 0.4,
+        width: MediaQuery.of(context).size.width * widthFraction,
         child: SingleChildScrollView(
           // キーボード表示時に入力欄が隠れないよう下に余白を追加する
           // Add bottom padding so input fields stay visible above the keyboard

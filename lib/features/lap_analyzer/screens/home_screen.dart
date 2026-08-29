@@ -55,6 +55,9 @@ class _LapAnalyzerHomeScreenState extends State<LapAnalyzerHomeScreen> {
       onReferenceLapCaptured: (lap) {
         unawaited(_saveReferenceLap(lap));
       },
+      onDebugLog: (line) {
+        unawaited(_lapLogWriter.writeDebugLine(line));
+      },
     );
     unawaited(_loadSavedLaps());
   }

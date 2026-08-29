@@ -58,40 +58,55 @@ void main() {
       service.dispose();
     });
 
-    test('finalizes a practice lap as LapType.practice when last_lap changes', () {
-      var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
-      final telemetry = GT7TelemetryService();
-      final completed = <LapCapture>[];
-      final service = LapCaptureService(
-        telemetryService: telemetry,
-        onLapCompleted: completed.add,
-        onReferenceLapCaptured: (_) {},
-        now: () => fakeNow,
-      );
+    test(
+      'finalizes a practice lap as LapType.practice when last_lap changes, '
+      'with LAP_TIME_MS taken from the claimed last_lap value',
+      () {
+        var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
+        final telemetry = GT7TelemetryService();
+        final completed = <LapCapture>[];
+        final service = LapCaptureService(
+          telemetryService: telemetry,
+          onLapCompleted: completed.add,
+          onReferenceLapCaptured: (_) {},
+          now: () => fakeNow,
+        );
 
-      // 最初に見えたラップ(=いつ始まったか不明)は境界を跨いだ時点で破棄される
-      // The first lap ever observed (unknown start) is discarded at the next boundary
-      telemetry.latestPacketNotifier.value = _packet(lapTime: -1);
-      telemetry.latestPacketNotifier.value = _packet(lapTime: 50000);
-      expect(completed, isEmpty);
+        // 最初に見えたラップ(=いつ始まったか不明)は境界を跨いだ時点で破棄される
+        // The first lap ever observed (unknown start) is discarded at the next boundary
+        telemetry.latestPacketNotifier.value = _packet(lapTime: -1);
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000);
+        expect(completed, isEmpty);
 
-      // ここからは開始時刻が確定した状態で次のラップを計測する
-      // From here, the next lap is tracked with a known start time
-      telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, positionX: 5);
-      fakeNow = fakeNow.add(const Duration(seconds: 70));
-      telemetry.latestPacketNotifier.value = _packet(lapTime: 69266);
+        // ここからは開始時刻が確定した状態で次のラップを計測する。実測1000ms
+        // 地点と70000ms地点の2サンプルを置き、測定される経過時間を意味あるもの
+        // にする
+        // From here, the next lap is tracked with a known start time. Two
+        // samples at the 1000ms and 70000ms marks give a meaningful measured
+        // elapsed duration.
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, positionX: 5);
+        fakeNow = fakeNow.add(const Duration(seconds: 69));
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, positionX: 8);
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 69266);
 
-      expect(completed, hasLength(1));
-      expect(completed.single.type, LapType.practice);
-      expect(completed.single.lapTimeMs, 69266);
-      expect(completed.single.samples, isNotEmpty);
+        expect(completed, hasLength(1));
+        expect(completed.single.type, LapType.practice);
+        // GT7自身の申告値(last_lap)がそのまま採用される
+        // GT7's own claimed value (last_lap) is used as-is
+        expect(completed.single.lapTimeMs, 69266);
+        expect(completed.single.samples, hasLength(3));
 
-      service.dispose();
-    });
+        service.dispose();
+      },
+    );
 
     test(
-      'requestCapture(target) waits for the next lap boundary before capturing, '
-      'and reports it via onReferenceLapCaptured with type target',
+      'requestCapture(target) waits for the next current_lap increase while '
+      'monitoring before capturing (a lap already in progress when the '
+      'button is pressed finishes as a plain practice lap, unaffected by '
+      'the pending request), and reports it via onReferenceLapCaptured with '
+      'type target',
       () {
         var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
         final telemetry = GT7TelemetryService();
@@ -105,8 +120,8 @@ void main() {
         );
 
         // 開始時刻を確定させるための準備 / Prime a known lap-start time
-        telemetry.latestPacketNotifier.value = _packet(lapTime: -1);
-        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000);
+        telemetry.latestPacketNotifier.value = _packet(lapTime: -1, currentLap: 1);
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, currentLap: 1);
 
         // ボタンを押した時点で周回の途中 / Mid-lap when the button is pressed
         service.requestCapture(LapType.target);
@@ -114,31 +129,80 @@ void main() {
         // アーム前: 既存の(無関係な)ラップのデータをUIに見せてはいけない
         // Before arming: must not expose the pre-existing (unrelated) lap data to the UI
         expect(service.isArmedRecordingNotifier.value, isFalse);
-        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, positionX: 3);
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 50000,
+          currentLap: 1,
+          positionX: 3,
+        );
         expect(service.isArmedRecordingNotifier.value, isFalse);
 
-        // この境界はまだキャプチャ対象ではない(要求後の最初の境界=開始点)
-        // This boundary isn't captured yet (first boundary after the request = the start point)
-        fakeNow = fakeNow.add(const Duration(seconds: 71));
-        telemetry.latestPacketNotifier.value = _packet(lapTime: 71000);
+        // この境界はまだキャプチャ対象ではない(要求後もまだcurrent_lapの
+        // 増加=スタートライン通過が起きていないため、通常のプラクティス
+        // ラップとして終わる)
+        // This boundary isn't captured yet (no current_lap increase has
+        // happened since the request, so it finishes as a plain practice lap)
+        fakeNow = fakeNow.add(const Duration(seconds: 69));
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 50000,
+          currentLap: 1,
+          positionX: 6,
+        );
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 71000, currentLap: 1);
         expect(referenceCaptured, isEmpty);
         expect(completed, hasLength(1));
         expect(completed.single.type, LapType.practice);
-        // アームされた: ここからのサンプルはキャプチャ対象のラップのもの
-        // Now armed: samples from here on belong to the lap being captured
+        expect(service.isArmedRecordingNotifier.value, isFalse);
+
+        // 瞬間移動(リプレイのループ再生地点)は常にモニタリングへ戻すだけ
+        // (currentLapの減少はアーム合図として扱わない)
+        // The teleport (replay loop-restart) always just falls back to
+        // monitoring (a currentLap decrease is never treated as the arm signal)
+        fakeNow = fakeNow.add(const Duration(seconds: 2));
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 71000,
+          currentLap: 0,
+          positionX: 1000,
+        );
+        expect(service.isArmedRecordingNotifier.value, isFalse);
+
+        // 数サンプル後、current_lapが増加する。これがスタートライン通過の
+        // 合図としてアームする。UIも即座に赤くなる
+        // A few samples later, current_lap increases. This is the "crossed
+        // the start line" signal that arms here. The UI turns red immediately.
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 71000,
+          currentLap: 1,
+          positionX: 1010,
+        );
         expect(service.isArmedRecordingNotifier.value, isTrue);
 
         // 境界パケット自身も新ラップの最初のサンプルとして数えられる
         // The boundary packet itself also counts as the new lap's first sample
-        telemetry.latestPacketNotifier.value = _packet(lapTime: 71000, positionX: 20);
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 71000,
+          currentLap: 1,
+          positionX: 1015,
+        );
         expect(service.currentLapSamples, hasLength(2));
 
         // 次の境界でキャプチャ完了 / Captured at the following boundary
         fakeNow = fakeNow.add(const Duration(seconds: 69));
-        telemetry.latestPacketNotifier.value = _packet(lapTime: 69266);
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 71000,
+          currentLap: 1,
+          positionX: 1020,
+        );
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 69266,
+          currentLap: 2,
+          positionX: 1030,
+        );
 
         expect(referenceCaptured, hasLength(1));
         expect(referenceCaptured.single.type, LapType.target);
+        // GT7自身の申告値(last_lap)がそのまま採用される
+        // GT7's own claimed value (last_lap) is used as-is
         expect(referenceCaptured.single.lapTimeMs, 69266);
         expect(completed, hasLength(2));
         expect(service.pendingCaptureNotifier.value, isNull);
@@ -181,6 +245,7 @@ void main() {
           positionX: 1,
         );
         // ここから「実際に走っている」とみなされる範囲 / From here on, considered "actually driving"
+        fakeNow = fakeNow.add(const Duration(seconds: 1));
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: 50000,
           speedKmh: 100,
@@ -191,23 +256,31 @@ void main() {
         // 末尾は「実質的に走っている」速度で終わる(停止して終わる場合の破棄は別テストで検証)
         // The next lap boundary (last_lap changing) finalizes this lap. It ends at
         // a "still really driving" speed (the stop-ending discard case is covered separately)
-        fakeNow = fakeNow.add(const Duration(seconds: 42));
+        fakeNow = fakeNow.add(const Duration(seconds: 41));
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 50000,
+          speedKmh: 100,
+          positionX: 40,
+        );
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: 42000,
           speedKmh: 100,
+          positionX: 40,
         );
 
         expect(completed, hasLength(1));
         final lap = completed.single;
         // 閾値未満だった先頭・末尾のサンプルが取り除かれている
         // The below-threshold leading/trailing samples have been removed
-        expect(lap.samples, hasLength(1));
+        expect(lap.samples, hasLength(2));
         expect(lap.samples.every((s) => s.speedKmh >= 5), isTrue);
         // 残った先頭サンプルを基準に0へ振り直されている
         // Re-based to 0 at the first remaining sample
         expect(lap.samples.first.elapsedMs, 0);
         expect(lap.samples.first.distanceM, 0);
         expect(lap.startSpeedKmh, 100);
+        // GT7自身の申告値(last_lap)がそのまま採用される
+        // GT7's own claimed value (last_lap) is used as-is
         expect(lap.lapTimeMs, 42000);
 
         service.dispose();
@@ -234,8 +307,9 @@ void main() {
         telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 100);
 
         // ゴール後に停止して終わる(=誤検知)区間 / A segment that ends coasted to a stop (misdetected)
-        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 2);
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 130);
         fakeNow = fakeNow.add(const Duration(seconds: 70));
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 2);
         telemetry.latestPacketNotifier.value = _packet(lapTime: 69945, speedKmh: 1);
         expect(completed, isEmpty); // 破棄される / Discarded
 
@@ -248,11 +322,14 @@ void main() {
         // good laps and meant nothing could ever be confirmed)
         telemetry.latestPacketNotifier.value = _packet(lapTime: 69945, speedKmh: 130);
         fakeNow = fakeNow.add(const Duration(seconds: 69));
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 69945, speedKmh: 132);
         telemetry.latestPacketNotifier.value = _packet(lapTime: 69069, speedKmh: 135);
 
         expect(completed, hasLength(1));
+        // GT7自身の申告値(last_lap)がそのまま採用される
+        // GT7's own claimed value (last_lap) is used as-is
         expect(completed.single.lapTimeMs, 69069);
-        expect(completed.single.samples, isNotEmpty);
+        expect(completed.single.samples, hasLength(2));
 
         service.dispose();
       },
@@ -284,8 +361,8 @@ void main() {
         // this look like a perfectly normal segment.
         telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 130);
         telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 2);
-        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 135);
         fakeNow = fakeNow.add(const Duration(seconds: 69));
+        telemetry.latestPacketNotifier.value = _packet(lapTime: 50000, speedKmh: 135);
         telemetry.latestPacketNotifier.value = _packet(lapTime: 69000, speedKmh: 140);
 
         expect(completed, isEmpty);
@@ -338,6 +415,7 @@ void main() {
           speedKmh: 120,
           positionX: 510,
         );
+        fakeNow = fakeNow.add(const Duration(seconds: 69));
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: 69000,
           speedKmh: 125,
@@ -416,6 +494,8 @@ void main() {
         );
 
         expect(completed, hasLength(1));
+        // GT7自身の申告値(last_lap)がそのまま採用される
+        // GT7's own claimed value (last_lap) is used as-is
         expect(completed.single.lapTimeMs, 70320);
 
         service.dispose();
@@ -477,33 +557,32 @@ void main() {
     );
 
     test(
-      'arms for the requested capture via the post-lap teleport while '
-      'monitoring, rather than waiting for a current_lap increase (real '
-      'device logs showed current_lap can increase at unpredictable points '
-      'mid-lap, which used to finalize segments far shorter than a real lap '
-      'as if they were a complete one)',
+      'arms at the current_lap increase while monitoring (turning the UI '
+      'red immediately) — a teleport always falls back to monitoring first, '
+      'and finalizes as the requested capture at the following genuine '
+      'last_lap boundary',
       () {
         var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
         final telemetry = GT7TelemetryService();
-        final completed = <LapCapture>[];
         final referenceCaptured = <LapCapture>[];
         final service = LapCaptureService(
           telemetryService: telemetry,
-          onLapCompleted: completed.add,
+          onLapCompleted: (_) {},
           onReferenceLapCaptured: referenceCaptured.add,
           now: () => fakeNow,
         );
 
-        // 準備: 直前の周回が完了した状態にする
-        // Prime it as if the previous lap just completed
+        // 開始時刻を確定させるための準備 / Prime a known lap-start time
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: -1,
+          currentLap: 2,
           speedKmh: 100,
           positionX: 0,
         );
         fakeNow = fakeNow.add(const Duration(milliseconds: 10));
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: 70320,
+          currentLap: 2,
           speedKmh: 100,
           positionX: 0,
         );
@@ -511,44 +590,72 @@ void main() {
         service.requestCapture(LapType.best);
         expect(service.isArmedRecordingNotifier.value, isFalse);
 
-        // ゴール後、リプレイがループしてスタート地点へ位置が瞬間移動する。
-        // モニタリング中にこれが起きた時点でアームする(計測モード開始)
-        // After the finish, the replay loops and position teleports back to
-        // the start. Arms right here, since this happened while monitoring.
+        // 瞬間移動(スタート地点へのリセット)は常にモニタリングへ戻すだけ
+        // (currentLapの減少はアーム合図として扱わない)。last_lapはリセット
+        // 直後は-1のまま(実機ログで確認済み)
+        // The teleport (position reset to the start) always just falls back
+        // to monitoring (a currentLap decrease is never the arm signal).
+        // last_lap stays -1 right after the reset (confirmed via real device logs)
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: -1,
+          currentLap: 0,
           speedKmh: 100,
           positionX: 1000,
         );
-        expect(service.isArmedRecordingNotifier.value, isTrue);
+        expect(service.isArmedRecordingNotifier.value, isFalse);
 
-        // 瞬間移動の直後から78秒間クリーンに走る
-        // Drives cleanly for 78 seconds right after the teleport
+        // 数サンプル後、current_lapが増加してアームする。UIも即座に赤くなる
+        // A few samples later, current_lap increases and arms here. The UI
+        // turns red immediately.
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: -1,
+          currentLap: 1,
           speedKmh: 100,
           positionX: 1010,
         );
-        fakeNow = fakeNow.add(const Duration(seconds: 78));
+        expect(service.isArmedRecordingNotifier.value, isTrue);
+
+        // 瞬間移動の直後から70秒間クリーンに走る。last_lap はしばらく-1のまま
+        // (固定のベストラップの1周がまだ完了していないため)
+        // Drives cleanly for 70 seconds right after the teleport. last_lap
+        // stays at -1 for a while (this fixed best-lap loop hasn't completed yet)
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: -1,
+          currentLap: 1,
+          speedKmh: 100,
+          positionX: 1015,
+        );
+        fakeNow = fakeNow.add(const Duration(seconds: 70));
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: -1,
+          currentLap: 1,
           speedKmh: 100,
           positionX: 1020,
         );
 
         // 次の境界(last_lapの変化=ゴール)でこの周が確定し、要求されたベスト
-        // ラップとして保存される
+        // ラップとして保存される。これはcurrent_lapの次の増加より前に起きる
+        // (実機ログで確認済み: last_lapの更新→数秒後に瞬間移動→さらに数
+        // サンプル後にcurrent_lap増加、の順)ため、次の増加を待たずにここで
+        // 正しく判定できる
         // The next boundary (last_lap changing = finish) finalizes this lap
-        // and saves it as the requested best-lap capture
+        // and saves it as the requested best-lap capture. This happens
+        // before the next current_lap increase (confirmed via real device
+        // logs: last_lap updates, then a few seconds later the teleport,
+        // then a few samples after that current_lap increases), so this is
+        // correctly judged without waiting for the next crossing.
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: 70320,
+          currentLap: 2,
           speedKmh: 100,
           positionX: 1030,
         );
 
         expect(referenceCaptured, hasLength(1));
         expect(referenceCaptured.single.type, LapType.best);
+        // GT7自身の申告値(last_lap)がそのまま採用される
+        // GT7's own claimed value (last_lap) is used as-is
         expect(referenceCaptured.single.lapTimeMs, 70320);
         expect(service.isArmedRecordingNotifier.value, isFalse);
 
@@ -558,8 +665,8 @@ void main() {
 
     test(
       'discards (rather than accepts) a capture-armed segment that '
-      'completes implausibly fast for its claimed lap time, instead of '
-      'trusting whatever boundary happens to arrive next',
+      'completes implausibly fast for its claimed lap time, and falls back '
+      'to monitoring so the next current_lap increase arms it fresh again',
       () {
         var fakeNow = DateTime(2026, 1, 1, 12, 0, 0);
         final telemetry = GT7TelemetryService();
@@ -574,24 +681,37 @@ void main() {
 
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: -1,
+          currentLap: 2,
           speedKmh: 100,
           positionX: 0,
         );
         fakeNow = fakeNow.add(const Duration(milliseconds: 10));
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: 70320,
+          currentLap: 2,
           speedKmh: 100,
           positionX: 0,
         );
 
         service.requestCapture(LapType.target);
 
-        // 瞬間移動でアームする / Arms via the teleport
+        // 瞬間移動は常にモニタリングへ戻すだけ(last_lapは-1のまま)
+        // The teleport always just falls back to monitoring (last_lap stays -1)
         fakeNow = fakeNow.add(const Duration(seconds: 2));
         telemetry.latestPacketNotifier.value = _packet(
           lapTime: -1,
+          currentLap: 0,
           speedKmh: 100,
           positionX: 1000,
+        );
+        expect(service.isArmedRecordingNotifier.value, isFalse);
+
+        // current_lapが増加してアームする / current_lap increases and arms
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: -1,
+          currentLap: 1,
+          speedKmh: 100,
+          positionX: 1005,
         );
         expect(service.isArmedRecordingNotifier.value, isTrue);
 
@@ -600,14 +720,40 @@ void main() {
         // (inconsistent with the claimed lap time)
         fakeNow = fakeNow.add(const Duration(seconds: 3));
         telemetry.latestPacketNotifier.value = _packet(
-          lapTime: 70320,
+          lapTime: -1,
+          currentLap: 1,
           speedKmh: 100,
           positionX: 1010,
         );
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: 70320,
+          currentLap: 1,
+          speedKmh: 100,
+          positionX: 1020,
+        );
 
         expect(referenceCaptured, isEmpty);
-        // 破棄後もアーム状態は維持され、次の本物の周を捕まえようとし続ける
-        // Arming survives the discard, so it keeps trying to catch the next real lap
+        // 破棄後はモニタリングモードに戻る(要求自体は残っている)
+        // Falls back to monitoring after the discard (the request itself remains pending)
+        expect(service.isArmedRecordingNotifier.value, isFalse);
+        expect(service.pendingCaptureNotifier.value, LapType.target);
+
+        // 次に瞬間移動→current_lap増加が起きると、改めてアームされる
+        // The next teleport-then-current_lap-increase cycle arms it again
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: -1,
+          currentLap: 0,
+          speedKmh: 100,
+          positionX: 2000,
+        );
+        expect(service.isArmedRecordingNotifier.value, isFalse);
+        fakeNow = fakeNow.add(const Duration(seconds: 5));
+        telemetry.latestPacketNotifier.value = _packet(
+          lapTime: -1,
+          currentLap: 1,
+          speedKmh: 100,
+          positionX: 2005,
+        );
         expect(service.isArmedRecordingNotifier.value, isTrue);
 
         service.dispose();

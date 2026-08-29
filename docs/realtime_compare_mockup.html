@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>GT7 Lap Analyzer - リアルタイム差分比較 モックアップ</title>
+<style>
+  body {
+    margin: 0;
+    padding: 24px;
+    background: #1a1a1a;
+    display: flex;
+    justify-content: center;
+    font-family: -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
+  }
+  .screen {
+    width: 640px;
+    aspect-ratio: 16/8;
+    background: #242424;
+    border-radius: 14px;
+    padding: 14px 18px;
+    display: flex;
+    flex-direction: column;
+    color: #eaeaea;
+    box-sizing: border-box;
+  }
+  .topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .topbar .title {
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .start-speed-chip {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #2f2f2f;
+    border-radius: 8px;
+    padding: 5px 12px;
+    font-size: 12px;
+  }
+  .start-speed-chip .label { color: #9a9a9a; }
+  .start-speed-chip .diff-neg { color: #e0554f; font-weight: 500; }
+
+  .body-row {
+    display: flex;
+    flex: 1;
+    gap: 16px;
+    min-height: 0;
+  }
+
+  .delta-panel {
+    flex: 1;
+    background: #2f2f2f;
+    border-radius: 12px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 10px;
+  }
+  .delta-value {
+    font-size: 48px;
+    font-weight: 500;
+    color: #4fd18b;
+    line-height: 1;
+  }
+  .delta-caption {
+    font-size: 12px;
+    color: #9a9a9a;
+    margin: 4px 0 12px;
+  }
+  .sparkline {
+    width: 100%;
+    height: 36px;
+  }
+
+  .right-col {
+    flex: 1.15;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    justify-content: center;
+  }
+
+  .compare-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 13px;
+  }
+  .compare-row .label { color: #9a9a9a; font-size: 12px; }
+  .compare-row .values { color: #eaeaea; }
+  .compare-row .values .muted { color: #9a9a9a; font-weight: 400; }
+  .compare-row .values .diff-neg { color: #e0554f; }
+  .compare-row .values .diff-pos { color: #4fd18b; }
+
+  .bar-block .bar-label-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #9a9a9a;
+    margin-bottom: 4px;
+  }
+  .bar-track {
+    position: relative;
+    height: 12px;
+    background: #3a3a3a;
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .bar-target {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: #6a6a6a;
+  }
+  .bar-self {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    border-radius: 6px;
+  }
+  .bar-self.throttle { background: #6fae2e; }
+  .bar-self.brake { background: #d9663a; }
+
+  .line-indicator .li-label {
+    font-size: 12px;
+    color: #9a9a9a;
+    margin-bottom: 5px;
+  }
+  .li-track {
+    position: relative;
+    height: 18px;
+    background: #3a3a3a;
+    border-radius: 9px;
+  }
+  .li-center {
+    position: absolute;
+    left: 50%; top: 0; bottom: 0;
+    width: 2px;
+    background: #7a7a7a;
+  }
+  .li-self {
+    position: absolute;
+    top: 50%;
+    width: 12px; height: 12px;
+    border-radius: 50%;
+    background: #4a9eea;
+    transform: translate(-50%, -50%);
+  }
+</style>
+</head>
+<body>
+
+<div class="screen">
+  <div class="topbar">
+    <span class="title">&larr; リアルタイム差分比較</span>
+    <div class="start-speed-chip">
+      <span class="label">開始速度</span>
+      <span>自分 41.8</span>
+      <span class="label">/</span>
+      <span class="label">対象 42.3 km/h</span>
+      <span class="diff-neg">-0.5</span>
+    </div>
+  </div>
+
+  <div class="body-row">
+    <!-- 左: メインデルタ + スパークライン -->
+    <div class="delta-panel">
+      <div class="delta-value">-0.21</div>
+      <div class="delta-caption">ターゲット比（秒）</div>
+      <svg class="sparkline" viewBox="0 0 300 40" preserveAspectRatio="none">
+        <polyline points="0,16 40,12 80,20 120,8 160,24 200,14 240,10 280,18 300,12"
+          fill="none" stroke="#4fd18b" stroke-width="2.5" />
+      </svg>
+    </div>
+
+    <!-- 右: 速度・ペダル・ライン位置の連続比較 -->
+    <div class="right-col">
+
+      <div class="compare-row">
+        <span class="label">速度</span>
+        <span class="values">自分 118 <span class="muted">/ 対象 121 km/h</span> <span class="diff-neg">-3</span></span>
+      </div>
+
+      <div class="bar-block">
+        <div class="bar-label-row"><span>アクセル</span><span>自分 62% / 対象 78%</span></div>
+        <div class="bar-track">
+          <div class="bar-target" style="width:78%;"></div>
+          <div class="bar-self throttle" style="width:62%;"></div>
+        </div>
+      </div>
+
+      <div class="bar-block">
+        <div class="bar-label-row"><span>ブレーキ</span><span>自分 15% / 対象 5%</span></div>
+        <div class="bar-track">
+          <div class="bar-target" style="width:5%;"></div>
+          <div class="bar-self brake" style="width:15%;"></div>
+        </div>
+      </div>
+
+      <div class="line-indicator">
+        <div class="li-label">ライン位置（対ターゲット）</div>
+        <div class="li-track">
+          <div class="li-center"></div>
+          <div class="li-self" style="left:64%;"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

@@ -32,6 +32,20 @@ class LapLogWriter {
     });
   }
 
+  /// [LAP_DEBUG] 診断メッセージを、ラップログと同じファイルに追記する。
+  /// adb logcat無しでも実機での挙動を後から確認できるようにするため
+  /// Appends a [LAP_DEBUG] diagnostic message into the same file as the lap
+  /// log, so on-device behavior can be reviewed later without adb logcat.
+  Future<void> writeDebugLine(String line) async {
+    if (!Platform.isAndroid) return;
+
+    await _channel.invokeMethod<void>('appendToDownloadsLog', {
+      'folderName': _folderName,
+      'fileName': _fileName,
+      'text': '$line\n',
+    });
+  }
+
   String _render(LapCapture lap) {
     final buffer = StringBuffer();
     buffer.writeln('---');
